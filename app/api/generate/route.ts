@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateSQL } from "@/lib/ai/claude";
+import { generateSQL } from "@/lib/ai";
 import { classifyQueryType } from "@/lib/db/execute";
 import { Schema } from "@/types";
 
