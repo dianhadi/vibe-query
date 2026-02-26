@@ -4,20 +4,20 @@ import { classifyQueryType } from "@/lib/db/execute";
 import { Schema } from "@/types";
 
 export async function POST(req: NextRequest) {
-  let body: { prompt: string; schema: Schema };
+  let body: { prompt: string; schema: Schema; pageSize?: number };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const { prompt, schema } = body;
+  const { prompt, schema, pageSize } = body;
   if (!prompt || !schema) {
     return NextResponse.json({ error: "prompt and schema are required" }, { status: 400 });
   }
 
   try {
-    const sql = await generateSQL(prompt, schema);
+    const sql = await generateSQL(prompt, schema, pageSize);
     const queryType = classifyQueryType(sql);
     return NextResponse.json({ sql, queryType });
   } catch (err) {

@@ -28,8 +28,8 @@ function createAdapter(): AIAdapter {
   }
 }
 
-export async function generateSQL(prompt: string, schema: Schema): Promise<string> {
+export async function generateSQL(prompt: string, schema: Schema, pageSize?: number): Promise<string> {
   const adapter = createAdapter();
-  const systemPrompt = buildSystemPrompt(schemaToString(schema));
+  const systemPrompt = buildSystemPrompt(schemaToString(schema), pageSize);
   return adapter.generateSQL(systemPrompt, prompt);
 }

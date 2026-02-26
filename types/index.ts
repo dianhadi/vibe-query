@@ -35,6 +35,7 @@ export interface QueryResult {
   columns: string[];
   rows: Record<string, unknown>[];
   rowCount: number;
+  hasMore?: boolean;
 }
 
 export interface GenerateResult {
@@ -61,3 +62,7 @@ export interface ColumnMapping {
   mappedName: string;
   dataType: string;
 }
+
+export const PAGE_SIZES = [20, 50, 100] as const;
+export type PageSize = typeof PAGE_SIZES[number];
+export const DEFAULT_PAGE_SIZE: PageSize = 50;

@@ -1,15 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { ConnectionConfig, Schema, QueryHistoryItem, QueryType, QueryResult as QueryResultType } from "@/types";
+import {
+  ConnectionConfig, Schema, QueryHistoryItem, QueryType,
+  QueryResult as QueryResultType, PageSize, DEFAULT_PAGE_SIZE,
+} from "@/types";
+import { getLimitValue, stripLimitOffset, classifyQueryType } from "@/lib/db/execute";
 import ConnectionForm from "@/components/ConnectionForm";
-
 import SchemaExplorer from "@/components/SchemaExplorer";
 import PromptInput from "@/components/PromptInput";
 import QueryResult from "@/components/QueryResult";
 import MutationConfirm from "@/components/MutationConfirm";
 import QueryHistory from "@/components/QueryHistory";
 import FileImport from "@/components/FileImport";
+import PaginationConfirm from "@/components/PaginationConfirm";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -19,7 +23,8 @@ import { Toaster } from "@/components/ui/sonner";
 type AppState =
   | { kind: "idle" }
   | { kind: "loading" }
-  | { kind: "select_result"; sql: string; result: QueryResultType }
+  | { kind: "pagination_confirm"; baseSql: string }
+  | { kind: "select_result"; baseSql: string; result: QueryResultType; page: number; pageSize: number; paginated: boolean; pageLoading: boolean }
   | { kind: "mutation_preview"; sql: string; queryType: QueryType; preview: { rowsAffected: number; previewRows?: Record<string, unknown>[] } | null; previewLoading: boolean; commitLoading: boolean; error?: string }
   | { kind: "mutation_done"; sql: string; queryType: QueryType; rowsAffected: number }
   | { kind: "error"; message: string };
@@ -32,6 +37,7 @@ export default function Home() {
   const [history, setHistory] = useState<QueryHistoryItem[]>([]);
   const [activeTab, setActiveTab] = useState("query");
   const [currentPrompt, setCurrentPrompt] = useState("");
+  const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE);
 
   function handleConnected(config: ConnectionConfig, s: Schema) {
     setConnectionConfig(config);
@@ -46,6 +52,66 @@ export default function Home() {
     ]);
   }
 
+  async function runPaginatedSelect(baseSql: string, page: number, size: PageSize, prompt: string) {
+    const res = await fetch("/api/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sql: baseSql, connectionConfig, page, pageSize: size }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      setAppState({ kind: "error", message: data.error });
+      return;
+    }
+    setAppState({ kind: "select_result", baseSql, result: data, page, pageSize: size, paginated: true, pageLoading: false });
+    if (page === 0) addHistory({ prompt, sql: baseSql, queryType: "SELECT", rowCount: data.rowCount });
+  }
+
+  async function runDirectSelect(sql: string, prompt: string) {
+    const res = await fetch("/api/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sql, connectionConfig }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      setAppState({ kind: "error", message: data.error });
+      return;
+    }
+    setAppState({ kind: "select_result", baseSql: sql, result: data, page: 0, pageSize, paginated: false, pageLoading: false });
+    addHistory({ prompt, sql, queryType: "SELECT", rowCount: data.rowCount });
+  }
+
+  async function processSQL(sql: string, prompt: string) {
+    const queryType = classifyQueryType(sql);
+
+    if (queryType === "SELECT") {
+      const limitValue = getLimitValue(sql);
+      if (limitValue === null) {
+        setAppState({ kind: "pagination_confirm", baseSql: sql });
+      } else if (limitValue === pageSize) {
+        await runPaginatedSelect(stripLimitOffset(sql), 0, pageSize, prompt);
+      } else {
+        await runDirectSelect(sql, prompt);
+      }
+    } else {
+      setAppState({ kind: "mutation_preview", sql, queryType, preview: null, previewLoading: true, commitLoading: false });
+
+      const mRes = await fetch("/api/mutate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sql, connectionConfig, confirmed: false }),
+      });
+      const mData = await mRes.json();
+
+      if (mData.error) {
+        setAppState({ kind: "mutation_preview", sql, queryType, preview: null, previewLoading: false, commitLoading: false, error: mData.error });
+        return;
+      }
+      setAppState({ kind: "mutation_preview", sql, queryType, preview: mData.preview ?? null, previewLoading: false, commitLoading: false });
+    }
+  }
+
   async function handlePrompt(prompt: string) {
     if (!schema || !connectionConfig) return;
     setCurrentPrompt(prompt);
@@ -55,77 +121,51 @@ export default function Home() {
       const genRes = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, schema }),
+        body: JSON.stringify({ prompt, schema, pageSize }),
       });
       const genData = await genRes.json();
       if (genData.error) {
         setAppState({ kind: "error", message: genData.error });
         return;
       }
-
-      const { sql, queryType } = genData;
-
-      if (queryType === "SELECT") {
-        const qRes = await fetch("/api/query", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sql, connectionConfig }),
-        });
-        const qData = await qRes.json();
-        if (qData.error) {
-          setAppState({ kind: "error", message: qData.error });
-          return;
-        }
-        setAppState({ kind: "select_result", sql, result: qData });
-        addHistory({ prompt, sql, queryType, rowCount: qData.rowCount });
-      } else {
-        setAppState({
-          kind: "mutation_preview",
-          sql,
-          queryType,
-          preview: null,
-          previewLoading: true,
-          commitLoading: false,
-        });
-
-        const mRes = await fetch("/api/mutate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sql, connectionConfig, confirmed: false }),
-        });
-        const mData = await mRes.json();
-
-        if (mData.error) {
-          setAppState({
-            kind: "mutation_preview",
-            sql,
-            queryType,
-            preview: null,
-            previewLoading: false,
-            commitLoading: false,
-            error: mData.error,
-          });
-          return;
-        }
-
-        setAppState({
-          kind: "mutation_preview",
-          sql,
-          queryType,
-          preview: mData.preview ?? null,
-          previewLoading: false,
-          commitLoading: false,
-        });
-      }
+      await processSQL(genData.sql, prompt);
     } catch (err) {
       setAppState({ kind: "error", message: err instanceof Error ? err.message : "Unexpected error" });
     }
   }
 
+  async function handleRerun(sql: string) {
+    if (!connectionConfig) return;
+    setAppState({ kind: "loading" });
+    try {
+      await processSQL(sql, currentPrompt);
+    } catch (err) {
+      setAppState({ kind: "error", message: err instanceof Error ? err.message : "Unexpected error" });
+    }
+  }
+
+  async function handlePaginationConfirm(baseSql: string) {
+    setAppState({ kind: "loading" });
+    await runPaginatedSelect(baseSql, 0, pageSize, currentPrompt);
+  }
+
+  async function handlePageSizeChange(newSize: PageSize) {
+    if (appState.kind !== "select_result") return;
+    setPageSize(newSize);
+    setAppState({ kind: "loading" });
+    await runPaginatedSelect(appState.baseSql, 0, newSize, currentPrompt);
+  }
+
+  async function handlePageChange(page: number) {
+    if (appState.kind !== "select_result" || !connectionConfig) return;
+    const { baseSql, pageSize: size } = appState;
+    setAppState({ ...appState, pageLoading: true });
+    await runPaginatedSelect(baseSql, page, size as PageSize, currentPrompt);
+  }
+
   async function handleCommit() {
     if (appState.kind !== "mutation_preview" || !connectionConfig) return;
     const { sql, queryType } = appState;
-
     setAppState({ ...appState, commitLoading: true, error: undefined });
 
     try {
@@ -141,12 +181,9 @@ export default function Home() {
       }
       setAppState({ kind: "mutation_done", sql, queryType, rowsAffected: data.result.rowsAffected });
       addHistory({ prompt: currentPrompt, sql, queryType, rowCount: data.result.rowsAffected });
+      if (queryType === "DDL") refreshSchema();
     } catch (err) {
-      setAppState({
-        ...appState,
-        commitLoading: false,
-        error: err instanceof Error ? err.message : "Commit failed",
-      });
+      setAppState({ ...appState, commitLoading: false, error: err instanceof Error ? err.message : "Commit failed" });
     }
   }
 
@@ -159,7 +196,7 @@ export default function Home() {
     setActiveTab("query");
   }
 
-  function handleImported() {
+  function refreshSchema() {
     if (!connectionConfig) return;
     fetch("/api/connect", {
       method: "POST",
@@ -167,9 +204,11 @@ export default function Home() {
       body: JSON.stringify(connectionConfig),
     })
       .then((r) => r.json())
-      .then((d) => {
-        if (d.success) setSchema(d.schema);
-      });
+      .then((d) => { if (d.success) setSchema(d.schema); });
+  }
+
+  function handleImported() {
+    refreshSchema();
   }
 
   if (!connected || !schema || !connectionConfig) {
@@ -188,11 +227,7 @@ export default function Home() {
             variant="ghost"
             size="sm"
             className="h-6 text-xs text-muted-foreground"
-            onClick={() => {
-              setConnected(false);
-              setSchema(null);
-              setConnectionConfig(null);
-            }}
+            onClick={() => { setConnected(false); setSchema(null); setConnectionConfig(null); }}
           >
             Disconnect
           </Button>
@@ -235,8 +270,27 @@ export default function Home() {
               </Alert>
             )}
 
+            {appState.kind === "pagination_confirm" && (
+              <PaginationConfirm
+                sql={appState.baseSql}
+                pageSize={pageSize}
+                onConfirm={() => handlePaginationConfirm(appState.baseSql)}
+                onCancel={handleCancel}
+              />
+            )}
+
             {appState.kind === "select_result" && (
-              <QueryResult sql={appState.sql} result={appState.result} />
+              <QueryResult
+                baseSql={appState.baseSql}
+                result={appState.result}
+                page={appState.page}
+                pageSize={appState.pageSize}
+                paginated={appState.paginated}
+                pageLoading={appState.pageLoading}
+                onPageChange={handlePageChange}
+                onPageSizeChange={handlePageSizeChange}
+                onRerun={handleRerun}
+              />
             )}
 
             {appState.kind === "mutation_preview" && (
@@ -259,7 +313,7 @@ export default function Home() {
                     {appState.rowsAffected !== 1 ? "s" : ""} affected.
                   </AlertDescription>
                 </Alert>
-                <div className="relative rounded-md bg-muted border text-sm font-mono overflow-x-auto">
+                <div className="rounded-md bg-muted border text-sm font-mono overflow-x-auto">
                   <pre className="px-3 py-2 whitespace-pre-wrap break-all">{appState.sql}</pre>
                 </div>
               </div>

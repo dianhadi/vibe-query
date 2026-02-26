@@ -18,6 +18,25 @@ export function classifyQueryType(sql: string): QueryType {
   return "SELECT";
 }
 
+export function hasLimitClause(sql: string): boolean {
+  return /\bLIMIT\b/i.test(sql);
+}
+
+/** Returns the top-level LIMIT value, or null if none. */
+export function getLimitValue(sql: string): number | null {
+  const match = /\bLIMIT\s+(\d+)\s*(?:OFFSET\s+\d+\s*)?;?\s*$/i.exec(sql.trim());
+  return match ? parseInt(match[1], 10) : null;
+}
+
+/** Strips the trailing LIMIT … OFFSET … clause from a SQL string. */
+export function stripLimitOffset(sql: string): string {
+  return sql
+    .trim()
+    .replace(/;\s*$/, "")
+    .replace(/\s+LIMIT\s+\d+(\s+OFFSET\s+\d+)?\s*$/i, "")
+    .trim();
+}
+
 export async function executeSelect(
   client: PoolClient,
   sql: string
@@ -27,6 +46,26 @@ export async function executeSelect(
     columns: result.fields.map((f) => f.name),
     rows: result.rows,
     rowCount: result.rowCount ?? 0,
+  };
+}
+
+export async function executeSelectPaginated(
+  client: PoolClient,
+  baseSql: string,
+  page: number,
+  pageSize: number
+): Promise<QueryResult> {
+  const offset = page * pageSize;
+  // Fetch one extra row to detect whether there's a next page
+  const paginatedSQL = `${baseSql.replace(/;\s*$/, "")} LIMIT ${pageSize + 1} OFFSET ${offset}`;
+  const result = await client.query(paginatedSQL);
+  const hasMore = result.rows.length > pageSize;
+  const rows = hasMore ? result.rows.slice(0, pageSize) : result.rows;
+  return {
+    columns: result.fields.map((f) => f.name),
+    rows,
+    rowCount: rows.length,
+    hasMore,
   };
 }
 
