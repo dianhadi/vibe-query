@@ -3,16 +3,36 @@
 import { Schema } from "@/types";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface SchemaExplorerProps {
   schema: Schema;
+  dbSchemas: string[];
+  currentDbSchema: string;
+  onDbSchemaChange: (schema: string) => void;
 }
 
-export default function SchemaExplorer({ schema }: SchemaExplorerProps) {
+export default function SchemaExplorer({
+  schema,
+  dbSchemas,
+  currentDbSchema,
+  onDbSchemaChange,
+}: SchemaExplorerProps) {
   return (
     <div className="h-full flex flex-col">
-      <div className="px-3 py-2 border-b">
-        <h2 className="text-sm font-semibold">Schema</h2>
+      <div className="px-3 py-2 border-b space-y-2">
+        <Select value={currentDbSchema} onValueChange={onDbSchemaChange}>
+          <SelectTrigger className="h-7 text-xs w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {dbSchemas.map((s) => (
+              <SelectItem key={s} value={s} className="text-xs">
+                {s}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <p className="text-xs text-muted-foreground">{schema.tables.length} tables</p>
       </div>
       <ScrollArea className="flex-1">

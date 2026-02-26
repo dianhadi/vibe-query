@@ -1,4 +1,8 @@
-export function buildSystemPrompt(schemaText: string, pageSize?: number): string {
+export function buildSystemPrompt(
+  schemaText: string,
+  pageSize?: number,
+  dbSchema = "public"
+): string {
   const paginationRule = pageSize
     ? `- For SELECT queries where the user wants all or many rows (no specific count mentioned), always add \`LIMIT ${pageSize}\` at the end`
     : "";
@@ -11,6 +15,7 @@ Rules:
 - Only output valid PostgreSQL SQL
 - No markdown, no explanation — just the SQL
 - Use the schema provided to reference correct table and column names
+- Only generate queries for the '${dbSchema}' schema — do not reference tables in other schemas
 - If the user's request is ambiguous, make a reasonable assumption
 - For mutating queries, be conservative and precise
 ${paginationRule}

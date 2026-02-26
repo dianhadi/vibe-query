@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface ConnectionFormProps {
-  onConnected: (config: ConnectionConfig, schema: Schema) => void;
+  onConnected: (config: ConnectionConfig, schema: Schema, dbSchemas: string[]) => void;
 }
 
 export default function ConnectionForm({ onConnected }: ConnectionFormProps) {
@@ -38,7 +38,7 @@ export default function ConnectionForm({ onConnected }: ConnectionFormProps) {
       if (!data.success) {
         setError(data.error || "Connection failed");
       } else {
-        onConnected(config, data.schema);
+        onConnected(config, data.schema, data.dbSchemas ?? ["public"]);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Connection failed");

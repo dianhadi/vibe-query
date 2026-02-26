@@ -33,15 +33,19 @@ export default function Home() {
   const [connected, setConnected] = useState(false);
   const [connectionConfig, setConnectionConfig] = useState<ConnectionConfig | null>(null);
   const [schema, setSchema] = useState<Schema | null>(null);
+  const [dbSchemas, setDbSchemas] = useState<string[]>(["public"]);
+  const [currentDbSchema, setCurrentDbSchema] = useState("public");
   const [appState, setAppState] = useState<AppState>({ kind: "idle" });
   const [history, setHistory] = useState<QueryHistoryItem[]>([]);
   const [activeTab, setActiveTab] = useState("query");
   const [currentPrompt, setCurrentPrompt] = useState("");
   const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE);
 
-  function handleConnected(config: ConnectionConfig, s: Schema) {
+  function handleConnected(config: ConnectionConfig, s: Schema, schemas: string[]) {
     setConnectionConfig(config);
     setSchema(s);
+    setDbSchemas(schemas);
+    setCurrentDbSchema(schemas[0] ?? "public");
     setConnected(true);
   }
 
@@ -121,7 +125,7 @@ export default function Home() {
       const genRes = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, schema, pageSize }),
+        body: JSON.stringify({ prompt, schema, pageSize, dbSchema: currentDbSchema }),
       });
       const genData = await genRes.json();
       if (genData.error) {
@@ -196,15 +200,28 @@ export default function Home() {
     setActiveTab("query");
   }
 
-  function refreshSchema() {
+  function refreshSchema(schemaName = currentDbSchema) {
     if (!connectionConfig) return;
-    fetch("/api/connect", {
+    fetch("/api/schema", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(connectionConfig),
+      body: JSON.stringify({ connectionConfig, schemaName }),
     })
       .then((r) => r.json())
-      .then((d) => { if (d.success) setSchema(d.schema); });
+      .then((d) => { if (d.schema) setSchema(d.schema); });
+  }
+
+  async function handleDbSchemaChange(schemaName: string) {
+    if (!connectionConfig) return;
+    setCurrentDbSchema(schemaName);
+    setAppState({ kind: "idle" });
+    const res = await fetch("/api/schema", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ connectionConfig, schemaName }),
+    });
+    const data = await res.json();
+    if (data.schema) setSchema(data.schema);
   }
 
   function handleImported() {
@@ -232,7 +249,12 @@ export default function Home() {
             Disconnect
           </Button>
         </div>
-        <SchemaExplorer schema={schema} />
+        <SchemaExplorer
+          schema={schema}
+          dbSchemas={dbSchemas}
+          currentDbSchema={currentDbSchema}
+          onDbSchemaChange={handleDbSchemaChange}
+        />
       </aside>
 
       {/* Main content */}

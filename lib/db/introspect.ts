@@ -1,13 +1,32 @@
 import { PoolClient } from "pg";
 import { Schema, TableInfo, ForeignKey } from "@/types";
 
-export async function introspectSchema(client: PoolClient): Promise<Schema> {
-  const tablesRes = await client.query<{ table_name: string }>(`
+export async function listSchemas(client: PoolClient): Promise<string[]> {
+  const res = await client.query<{ schema_name: string }>(`
+    SELECT schema_name
+    FROM information_schema.schemata
+    WHERE schema_name NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+      AND schema_name NOT LIKE 'pg_%'
+    ORDER BY
+      CASE WHEN schema_name = 'public' THEN 0 ELSE 1 END,
+      schema_name
+  `);
+  return res.rows.map((r) => r.schema_name);
+}
+
+export async function introspectSchema(
+  client: PoolClient,
+  schemaName = "public"
+): Promise<Schema> {
+  const tablesRes = await client.query<{ table_name: string }>(
+    `
     SELECT table_name
     FROM information_schema.tables
-    WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+    WHERE table_schema = $1 AND table_type = 'BASE TABLE'
     ORDER BY table_name
-  `);
+  `,
+    [schemaName]
+  );
 
   const tables: TableInfo[] = await Promise.all(
     tablesRes.rows.map(async (t) => {
@@ -19,10 +38,10 @@ export async function introspectSchema(client: PoolClient): Promise<Schema> {
         `
         SELECT column_name, data_type, is_nullable
         FROM information_schema.columns
-        WHERE table_schema = 'public' AND table_name = $1
+        WHERE table_schema = $1 AND table_name = $2
         ORDER BY ordinal_position
       `,
-        [t.table_name]
+        [schemaName, t.table_name]
       );
       return {
         name: t.table_name,
@@ -40,7 +59,8 @@ export async function introspectSchema(client: PoolClient): Promise<Schema> {
     column_name: string;
     foreign_table_name: string;
     foreign_column_name: string;
-  }>(`
+  }>(
+    `
     SELECT
       kcu.table_name,
       kcu.column_name,
@@ -51,8 +71,10 @@ export async function introspectSchema(client: PoolClient): Promise<Schema> {
       ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
     JOIN information_schema.constraint_column_usage AS ccu
       ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema
-    WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public'
-  `);
+    WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = $1
+  `,
+    [schemaName]
+  );
 
   const foreignKeys: ForeignKey[] = fkRes.rows.map((r) => ({
     table: r.table_name,
@@ -64,8 +86,8 @@ export async function introspectSchema(client: PoolClient): Promise<Schema> {
   return { tables, foreignKeys };
 }
 
-export function schemaToString(schema: Schema): string {
-  const lines: string[] = [];
+export function schemaToString(schema: Schema, schemaName = "public"): string {
+  const lines: string[] = [`PostgreSQL schema: ${schemaName}`];
   for (const table of schema.tables) {
     lines.push(`Table: ${table.name}`);
     for (const col of table.columns) {

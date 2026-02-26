@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createPool } from "@/lib/db/client";
-import { introspectSchema } from "@/lib/db/introspect";
+import { introspectSchema, listSchemas } from "@/lib/db/introspect";
 import { ConnectionConfig } from "@/types";
 
 export async function POST(req: NextRequest) {
@@ -15,8 +15,11 @@ export async function POST(req: NextRequest) {
   let client;
   try {
     client = await pool.connect();
-    const schema = await introspectSchema(client);
-    return NextResponse.json({ success: true, schema });
+    const [schema, dbSchemas] = await Promise.all([
+      introspectSchema(client, "public"),
+      listSchemas(client),
+    ]);
+    return NextResponse.json({ success: true, schema, dbSchemas });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ success: false, error: message }, { status: 400 });
