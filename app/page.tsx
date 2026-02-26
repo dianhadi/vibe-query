@@ -5,7 +5,7 @@ import {
   ConnectionConfig, Schema, QueryHistoryItem, QueryType,
   QueryResult as QueryResultType, PageSize, DEFAULT_PAGE_SIZE,
 } from "@/types";
-import { getLimitValue, stripLimitOffset, classifyQueryType } from "@/lib/db/execute";
+import { getLimitValue, stripLimitOffset, classifyQueryType, applyOrderBy } from "@/lib/db/execute";
 import ConnectionForm from "@/components/ConnectionForm";
 import SchemaExplorer from "@/components/SchemaExplorer";
 import PromptInput from "@/components/PromptInput";
@@ -40,6 +40,8 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState("query");
   const [currentPrompt, setCurrentPrompt] = useState("");
   const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE);
+  const [sortCol, setSortCol] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   function handleConnected(config: ConnectionConfig, s: Schema, schemas: string[]) {
     setConnectionConfig(config);
@@ -56,7 +58,7 @@ export default function Home() {
     ]);
   }
 
-  async function runPaginatedSelect(baseSql: string, page: number, size: PageSize, prompt: string) {
+  async function runPaginatedSelect(baseSql: string, page: number, size: PageSize, prompt: string, sc: string | null = null, sd: "asc" | "desc" = "asc") {
     const res = await fetch("/api/query", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -68,10 +70,12 @@ export default function Home() {
       return;
     }
     setAppState({ kind: "select_result", baseSql, result: data, page, pageSize: size, paginated: true, pageLoading: false });
+    setSortCol(sc);
+    setSortDir(sd);
     if (page === 0) addHistory({ prompt, sql: baseSql, queryType: "SELECT", rowCount: data.rowCount });
   }
 
-  async function runDirectSelect(sql: string, prompt: string) {
+  async function runDirectSelect(sql: string, prompt: string, sc: string | null = null, sd: "asc" | "desc" = "asc") {
     const res = await fetch("/api/query", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -83,10 +87,14 @@ export default function Home() {
       return;
     }
     setAppState({ kind: "select_result", baseSql: sql, result: data, page: 0, pageSize, paginated: false, pageLoading: false });
+    setSortCol(sc);
+    setSortDir(sd);
     addHistory({ prompt, sql, queryType: "SELECT", rowCount: data.rowCount });
   }
 
   async function processSQL(sql: string, prompt: string) {
+    setSortCol(null);
+    setSortDir("asc");
     const queryType = classifyQueryType(sql);
 
     if (queryType === "SELECT") {
@@ -165,6 +173,18 @@ export default function Home() {
     const { baseSql, pageSize: size } = appState;
     setAppState({ ...appState, pageLoading: true });
     await runPaginatedSelect(baseSql, page, size as PageSize, currentPrompt);
+  }
+
+  async function handleSortChange(col: string | null, dir: "asc" | "desc") {
+    if (appState.kind !== "select_result") return;
+    const { baseSql, paginated, pageSize: size } = appState;
+    const sortedSql = applyOrderBy(baseSql, col, dir);
+    setAppState({ ...appState, pageLoading: true });
+    if (paginated) {
+      await runPaginatedSelect(sortedSql, 0, size as PageSize, currentPrompt, col, dir);
+    } else {
+      await runDirectSelect(sortedSql, currentPrompt, col, dir);
+    }
   }
 
   async function handleCommit() {
@@ -312,6 +332,9 @@ export default function Home() {
                 onPageChange={handlePageChange}
                 onPageSizeChange={handlePageSizeChange}
                 onRerun={handleRerun}
+                onSortChange={handleSortChange}
+                sortCol={sortCol}
+                sortDir={sortDir}
               />
             )}
 

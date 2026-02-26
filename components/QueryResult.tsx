@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { QueryResult as QueryResultType, PAGE_SIZES, PageSize } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -31,7 +31,12 @@ interface QueryResultProps {
   onPageChange?: (page: number) => void;
   onPageSizeChange?: (size: PageSize) => void;
   onRerun?: (sql: string) => void;
+  onSortChange?: (col: string | null, dir: "asc" | "desc") => void;
+  sortCol?: string | null;
+  sortDir?: SortDir;
 }
+
+type SortDir = "asc" | "desc";
 
 const CLIENT_PAGE_SIZE = 50;
 
@@ -45,11 +50,19 @@ export default function QueryResult({
   onPageChange,
   onPageSizeChange,
   onRerun,
+  onSortChange,
+  sortCol = null,
+  sortDir = "asc",
 }: QueryResultProps) {
   const [clientPage, setClientPage] = useState(0);
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editedSql, setEditedSql] = useState("");
+
+  // Reset page when new results arrive
+  useEffect(() => {
+    setClientPage(0);
+  }, [result]);
 
   const displaySql = paginated
     ? `${baseSql} LIMIT ${pageSize} OFFSET ${page * pageSize}`
@@ -62,6 +75,29 @@ export default function QueryResult({
 
   const rowStart = paginated ? page * pageSize + 1 : clientPage * CLIENT_PAGE_SIZE + 1;
   const rowEnd = rowStart + displayRows.length - 1;
+
+  function handleSort(col: string) {
+    if (!onSortChange) return;
+    if (sortCol === col) {
+      if (sortDir === "asc") {
+        onSortChange(col, "desc");
+      } else {
+        // third click — clear sort
+        onSortChange(null, "asc");
+      }
+    } else {
+      onSortChange(col, "asc");
+    }
+  }
+
+  function sortIndicator(col: string) {
+    if (sortCol !== col) return <span className="ml-1 opacity-20">⇅</span>;
+    return (
+      <span className="ml-1 opacity-80">
+        {sortDir === "asc" ? "↑" : "↓"}
+      </span>
+    );
+  }
 
   async function copySQL() {
     await navigator.clipboard.writeText(editing ? editedSql : displaySql);
@@ -106,32 +142,16 @@ export default function QueryResult({
           <div className="flex items-center gap-1">
             {editing ? (
               <>
-                <Button
-                  variant="default"
-                  size="sm"
-                  className="h-6 text-xs"
-                  onClick={handleRerun}
-                  disabled={!editedSql.trim()}
-                >
+                <Button variant="default" size="sm" className="h-6 text-xs" onClick={handleRerun} disabled={!editedSql.trim()}>
                   Run
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 text-xs"
-                  onClick={cancelEditing}
-                >
+                <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={cancelEditing}>
                   Cancel
                 </Button>
               </>
             ) : (
               <>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 text-xs"
-                  onClick={startEditing}
-                >
+                <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={startEditing}>
                   Edit
                 </Button>
                 <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={copySQL}>
@@ -173,6 +193,11 @@ export default function QueryResult({
             {result.columns.length} columns
           </Badge>
         )}
+        {sortCol && (
+          <Badge variant="outline" className="text-xs">
+            sorted by {sortCol} {sortDir === "asc" ? "↑" : "↓"}
+          </Badge>
+        )}
       </div>
 
       {/* Table */}
@@ -183,8 +208,13 @@ export default function QueryResult({
               <TableHeader>
                 <TableRow>
                   {result.columns.map((col) => (
-                    <TableHead key={col} className="whitespace-nowrap text-xs">
+                    <TableHead
+                      key={col}
+                      className="whitespace-nowrap text-xs cursor-pointer select-none hover:bg-muted/60 transition-colors"
+                      onClick={() => handleSort(col)}
+                    >
                       {col}
+                      {sortIndicator(col)}
                     </TableHead>
                   ))}
                 </TableRow>
@@ -210,21 +240,11 @@ export default function QueryResult({
           {/* Server-side pagination controls */}
           {paginated && onPageChange && (
             <div className="flex items-center gap-2 text-sm">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onPageChange(page - 1)}
-                disabled={page === 0 || pageLoading}
-              >
+              <Button variant="outline" size="sm" onClick={() => onPageChange(page - 1)} disabled={page === 0 || pageLoading}>
                 Previous
               </Button>
               <span className="text-muted-foreground">Page {page + 1}</span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onPageChange(page + 1)}
-                disabled={!result.hasMore || pageLoading}
-              >
+              <Button variant="outline" size="sm" onClick={() => onPageChange(page + 1)} disabled={!result.hasMore || pageLoading}>
                 Next
               </Button>
               {pageLoading && (
@@ -232,19 +252,13 @@ export default function QueryResult({
               )}
               <div className="ml-auto flex items-center gap-2">
                 <span className="text-xs text-muted-foreground">Rows per page</span>
-                <Select
-                  value={String(pageSize)}
-                  onValueChange={(v) => onPageSizeChange?.(Number(v) as PageSize)}
-                  disabled={pageLoading}
-                >
+                <Select value={String(pageSize)} onValueChange={(v) => onPageSizeChange?.(Number(v) as PageSize)} disabled={pageLoading}>
                   <SelectTrigger className="h-7 w-16 text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {PAGE_SIZES.map((s) => (
-                      <SelectItem key={s} value={String(s)} className="text-xs">
-                        {s}
-                      </SelectItem>
+                      <SelectItem key={s} value={String(s)} className="text-xs">{s}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -255,23 +269,13 @@ export default function QueryResult({
           {/* Client-side pagination controls */}
           {!paginated && clientTotalPages > 1 && (
             <div className="flex items-center gap-2 text-sm">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setClientPage((p) => Math.max(0, p - 1))}
-                disabled={clientPage === 0}
-              >
+              <Button variant="outline" size="sm" onClick={() => setClientPage((p) => Math.max(0, p - 1))} disabled={clientPage === 0}>
                 Previous
               </Button>
               <span className="text-muted-foreground">
                 Page {clientPage + 1} of {clientTotalPages}
               </span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setClientPage((p) => Math.min(clientTotalPages - 1, p + 1))}
-                disabled={clientPage === clientTotalPages - 1}
-              >
+              <Button variant="outline" size="sm" onClick={() => setClientPage((p) => Math.min(clientTotalPages - 1, p + 1))} disabled={clientPage === clientTotalPages - 1}>
                 Next
               </Button>
             </div>

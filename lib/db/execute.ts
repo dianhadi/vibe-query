@@ -37,6 +37,19 @@ export function stripLimitOffset(sql: string): string {
     .trim();
 }
 
+/** Strips any trailing ORDER BY clause and appends a new one (or none if col is null). */
+export function applyOrderBy(sql: string, col: string | null, dir: "asc" | "desc"): string {
+  const stripped = sql
+    .trim()
+    .replace(/;\s*$/, "")
+    .replace(/\s+ORDER\s+BY\s+.+$/i, "")
+    .trim();
+  if (!col) return stripped;
+  // Quote column name to handle reserved words and mixed case
+  const quoted = `"${col.replace(/"/g, '""')}"`;
+  return `${stripped} ORDER BY ${quoted} ${dir.toUpperCase()}`;
+}
+
 export async function executeSelect(
   client: PoolClient,
   sql: string
