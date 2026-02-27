@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { ConnectionConfig, Schema } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,7 +52,9 @@ export default function ConnectionForm({ onConnected }: ConnectionFormProps) {
     <div className="flex items-center justify-center min-h-screen bg-background">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle className="text-2xl">vibe-query</CardTitle>
+          <CardTitle>
+            <Image src="/vibeQL-logo.svg" alt="vibeQL" width={160} height={50} priority />
+          </CardTitle>
           <CardDescription>Connect to your PostgreSQL database to get started.</CardDescription>
         </CardHeader>
         <CardContent>

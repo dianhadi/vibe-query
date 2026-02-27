@@ -20,6 +20,7 @@ import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
+import Image from "next/image";
 
 type AppState =
   | { kind: "idle" }
@@ -318,7 +319,7 @@ export default function Home() {
       {/* Left sidebar: schema */}
       <aside className="w-56 border-r flex flex-col shrink-0">
         <div className="px-3 py-3 border-b flex items-center justify-between">
-          <span className="font-bold text-sm">vibe-query</span>
+          <Image src="/vibeQL-logo.svg" alt="vibeQL" width={88} height={28} />
           <Button
             variant="ghost"
             size="sm"
