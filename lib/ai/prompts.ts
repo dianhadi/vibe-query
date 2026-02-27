@@ -1,3 +1,17 @@
+export function buildERDSystemPrompt(): string {
+  return `You are a database schema expert.
+Convert the given PostgreSQL schema into a Mermaid erDiagram.
+
+Rules:
+- Output ONLY valid Mermaid erDiagram syntax — no markdown fences, no explanation
+- Start directly with "erDiagram"
+- Use PascalCase for entity names matching table names
+- Include all columns with their types (use generic types: string, int, bigint, float, boolean, date, datetime, uuid, text)
+- Mark primary keys with PK and foreign keys with FK
+- Add relationships between tables based on foreign key constraints and naming conventions (e.g. user_id → users)
+- Use correct Mermaid relationship syntax: ||--o{ (one-to-many), }o--o{ (many-to-many), ||--|| (one-to-one)`;
+}
+
 export function buildSystemPrompt(
   schemaText: string,
   pageSize?: number,

@@ -14,6 +14,7 @@ import MutationConfirm from "@/components/MutationConfirm";
 import QueryHistory from "@/components/QueryHistory";
 import FileImport from "@/components/FileImport";
 import PaginationConfirm from "@/components/PaginationConfirm";
+import ERDViewer from "@/components/ERDViewer";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -284,6 +285,7 @@ export default function Home() {
             <TabsList className="h-10">
               <TabsTrigger value="query">Query</TabsTrigger>
               <TabsTrigger value="import">Import</TabsTrigger>
+              <TabsTrigger value="erd">ERD</TabsTrigger>
               <TabsTrigger value="history">History ({history.length})</TabsTrigger>
             </TabsList>
           </div>
@@ -367,6 +369,14 @@ export default function Home() {
 
           <TabsContent value="import" className="flex-1 overflow-auto p-4 mt-0">
             <FileImport connectionConfig={connectionConfig} onImported={handleImported} />
+          </TabsContent>
+
+          <TabsContent value="erd" className="flex-1 overflow-auto p-4 mt-0 h-full">
+            <ERDViewer
+              schema={schema}
+              dbSchema={currentDbSchema}
+              connectionConfig={connectionConfig}
+            />
           </TabsContent>
 
           <TabsContent value="history" className="flex-1 overflow-hidden mt-0 h-full">

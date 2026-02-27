@@ -1,5 +1,5 @@
 import { Schema } from "@/types";
-import { buildSystemPrompt } from "./prompts";
+import { buildSystemPrompt, buildERDSystemPrompt } from "./prompts";
 import { schemaToString } from "@/lib/db/introspect";
 import { AIAdapter } from "./adapters/types";
 import { AnthropicAdapter } from "./adapters/anthropic";
@@ -26,6 +26,15 @@ function createAdapter(): AIAdapter {
     default:
       throw new Error(`Unknown AI_PROVIDER: "${provider}". Supported: anthropic, openai, ollama`);
   }
+}
+
+export async function generateERD(
+  schema: Schema,
+  dbSchema = "public"
+): Promise<string> {
+  const adapter = createAdapter();
+  const systemPrompt = buildERDSystemPrompt();
+  return adapter.generateSQL(systemPrompt, `Generate a Mermaid erDiagram for this schema:\n\n${schemaToString(schema, dbSchema)}`);
 }
 
 export async function generateSQL(
