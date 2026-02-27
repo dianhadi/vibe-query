@@ -1,5 +1,5 @@
 import { Schema } from "@/types";
-import { buildSystemPrompt, buildERDSystemPrompt } from "./prompts";
+import { buildSystemPrompt, buildERDSystemPrompt, buildAnalyzeSystemPrompt } from "./prompts";
 import { schemaToString } from "@/lib/db/introspect";
 import { AIAdapter } from "./adapters/types";
 import { AnthropicAdapter } from "./adapters/anthropic";
@@ -26,6 +26,16 @@ function createAdapter(): AIAdapter {
     default:
       throw new Error(`Unknown AI_PROVIDER: "${provider}". Supported: anthropic, openai, ollama`);
   }
+}
+
+export async function analyzeQueryPlan(
+  sql: string,
+  explainText: string
+): Promise<string> {
+  const adapter = createAdapter();
+  const systemPrompt = buildAnalyzeSystemPrompt();
+  const userPrompt = `SQL Query:\n\`\`\`sql\n${sql}\n\`\`\`\n\nEXPLAIN ANALYZE output:\n\`\`\`\n${explainText}\n\`\`\``;
+  return adapter.generateSQL(systemPrompt, userPrompt);
 }
 
 export async function generateERD(

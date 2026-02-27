@@ -25,7 +25,7 @@ type AppState =
   | { kind: "idle" }
   | { kind: "loading" }
   | { kind: "pagination_confirm"; baseSql: string }
-  | { kind: "select_result"; baseSql: string; result: QueryResultType; page: number; pageSize: number; paginated: boolean; pageLoading: boolean }
+  | { kind: "select_result"; baseSql: string; result: QueryResultType; page: number; pageSize: number; paginated: boolean; pageLoading: boolean; analysis?: string; analyzeLoading?: boolean; analyzeError?: string }
   | { kind: "mutation_preview"; sql: string; queryType: QueryType; preview: { rowsAffected: number; previewRows?: Record<string, unknown>[] } | null; previewLoading: boolean; commitLoading: boolean; error?: string }
   | { kind: "mutation_done"; sql: string; queryType: QueryType; rowsAffected: number }
   | { kind: "error"; message: string };
@@ -96,6 +96,7 @@ export default function Home() {
   async function processSQL(sql: string, prompt: string) {
     setSortCol(null);
     setSortDir("asc");
+    // analysis is part of select_result state, cleared naturally when state changes
     const queryType = classifyQueryType(sql);
 
     if (queryType === "SELECT") {
@@ -174,6 +175,26 @@ export default function Home() {
     const { baseSql, pageSize: size } = appState;
     setAppState({ ...appState, pageLoading: true });
     await runPaginatedSelect(baseSql, page, size as PageSize, currentPrompt);
+  }
+
+  async function handleAnalyze(sql: string) {
+    if (appState.kind !== "select_result" || !connectionConfig) return;
+    setAppState({ ...appState, analyzeLoading: true, analysis: undefined, analyzeError: undefined });
+    try {
+      const res = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sql, connectionConfig }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setAppState({ ...appState, analyzeLoading: false, analyzeError: data.error });
+      } else {
+        setAppState({ ...appState, analyzeLoading: false, analysis: data.analysis });
+      }
+    } catch (err) {
+      setAppState({ ...appState, analyzeLoading: false, analyzeError: err instanceof Error ? err.message : "Analysis failed" });
+    }
   }
 
   async function handleSortChange(col: string | null, dir: "asc" | "desc") {
@@ -337,6 +358,10 @@ export default function Home() {
                 onSortChange={handleSortChange}
                 sortCol={sortCol}
                 sortDir={sortDir}
+                onAnalyze={handleAnalyze}
+                analysis={appState.analysis}
+                analyzeLoading={appState.analyzeLoading}
+                analyzeError={appState.analyzeError}
               />
             )}
 

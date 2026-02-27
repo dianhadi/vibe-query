@@ -13,6 +13,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import ReactMarkdown from "react-markdown";
 import {
   Select,
   SelectContent,
@@ -34,6 +36,10 @@ interface QueryResultProps {
   onSortChange?: (col: string | null, dir: "asc" | "desc") => void;
   sortCol?: string | null;
   sortDir?: SortDir;
+  onAnalyze?: (sql: string) => void;
+  analysis?: string | null;
+  analyzeLoading?: boolean;
+  analyzeError?: string | null;
 }
 
 type SortDir = "asc" | "desc";
@@ -53,6 +59,10 @@ export default function QueryResult({
   onSortChange,
   sortCol = null,
   sortDir = "asc",
+  onAnalyze,
+  analysis,
+  analyzeLoading = false,
+  analyzeError,
 }: QueryResultProps) {
   const [clientPage, setClientPage] = useState(0);
   const [copied, setCopied] = useState(false);
@@ -157,6 +167,17 @@ export default function QueryResult({
                 <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={copySQL}>
                   {copied ? "Copied!" : "Copy"}
                 </Button>
+                {onAnalyze && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-xs"
+                    onClick={() => onAnalyze(displaySql)}
+                    disabled={analyzeLoading}
+                  >
+                    {analyzeLoading ? "Analyzing..." : "Analyze"}
+                  </Button>
+                )}
               </>
             )}
           </div>
@@ -180,6 +201,33 @@ export default function QueryResult({
           </div>
         )}
       </div>
+
+      {/* Analysis panel */}
+      {analyzeLoading && (
+        <div className="rounded-md border bg-muted/30 px-4 py-3 text-sm text-muted-foreground animate-pulse">
+          Running EXPLAIN ANALYZE and consulting AI...
+        </div>
+      )}
+      {analyzeError && (
+        <Alert variant="destructive">
+          <AlertDescription>{analyzeError}</AlertDescription>
+        </Alert>
+      )}
+      {analysis && !analyzeLoading && (
+        <div className="rounded-md border bg-muted/30 overflow-hidden">
+          <div className="px-3 py-2 border-b bg-muted/60 flex items-center gap-2">
+            <span className="text-xs font-medium">Query Analysis</span>
+            <Badge variant="secondary" className="text-xs">EXPLAIN ANALYZE</Badge>
+          </div>
+          <div className="px-4 py-3 prose prose-sm max-w-none text-sm
+            [&_h2]:text-sm [&_h2]:font-semibold [&_h2]:mt-3 [&_h2]:mb-1
+            [&_ul]:my-1 [&_li]:my-0.5
+            [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-xs
+            [&_pre]:bg-muted [&_pre]:p-2 [&_pre]:rounded [&_pre]:overflow-x-auto [&_pre]:text-xs">
+            <ReactMarkdown>{analysis}</ReactMarkdown>
+          </div>
+        </div>
+      )}
 
       {/* Result metadata */}
       <div className="flex items-center gap-2">
