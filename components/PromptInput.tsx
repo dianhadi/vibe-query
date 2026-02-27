@@ -7,10 +7,18 @@ import { Textarea } from "@/components/ui/textarea";
 interface PromptInputProps {
   onSubmit: (prompt: string) => void;
   loading: boolean;
+  value?: string;
+  onChange?: (value: string) => void;
 }
 
-export default function PromptInput({ onSubmit, loading }: PromptInputProps) {
-  const [prompt, setPrompt] = useState("");
+export default function PromptInput({ onSubmit, loading, value, onChange }: PromptInputProps) {
+  const [localPrompt, setLocalPrompt] = useState("");
+  const prompt = value !== undefined ? value : localPrompt;
+
+  function setPrompt(v: string) {
+    if (onChange) onChange(v);
+    else setLocalPrompt(v);
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

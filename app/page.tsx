@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   ConnectionConfig, Schema, QueryHistoryItem, QueryType,
   QueryResult as QueryResultType, PageSize, DEFAULT_PAGE_SIZE,
@@ -31,12 +31,63 @@ type AppState =
   | { kind: "mutation_done"; sql: string; queryType: QueryType; rowsAffected: number }
   | { kind: "error"; message: string };
 
+const SESSION_KEY  = "vibeql_session";
+const HISTORY_KEY  = "vibeql_history";
+const ERD_KEY      = "vibeql_erd";
+
+function saveSession(
+  config: ConnectionConfig,
+  sc: Schema,
+  schemas: string[],
+  schemaName: string
+) {
+  try {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ connectionConfig: config, schema: sc, dbSchemas: schemas, currentDbSchema: schemaName }));
+  } catch { /* quota exceeded or private browsing — ignore */ }
+}
+
+function clearSession() {
+  try {
+    sessionStorage.removeItem(SESSION_KEY);
+    sessionStorage.removeItem(HISTORY_KEY);
+    sessionStorage.removeItem(ERD_KEY);
+  } catch { /* ignore */ }
+}
+
 export default function Home() {
+  const [initializing, setInitializing] = useState(true);
   const [connected, setConnected] = useState(false);
   const [connectionConfig, setConnectionConfig] = useState<ConnectionConfig | null>(null);
   const [schema, setSchema] = useState<Schema | null>(null);
   const [dbSchemas, setDbSchemas] = useState<string[]>(["public"]);
   const [currentDbSchema, setCurrentDbSchema] = useState("public");
+
+  // Restore session on mount (runs only on client, after hydration)
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(SESSION_KEY);
+      if (raw) {
+        const saved = JSON.parse(raw);
+        if (saved.connectionConfig && saved.schema) {
+          setConnectionConfig(saved.connectionConfig);
+          setSchema(saved.schema);
+          setDbSchemas(saved.dbSchemas ?? ["public"]);
+          setCurrentDbSchema(saved.currentDbSchema ?? "public");
+          setConnected(true);
+        }
+      }
+
+      const historyRaw = sessionStorage.getItem(HISTORY_KEY);
+      if (historyRaw) {
+        const parsed = JSON.parse(historyRaw) as (Omit<QueryHistoryItem, "timestamp"> & { timestamp: string })[];
+        setHistory(parsed.map((item) => ({ ...item, timestamp: new Date(item.timestamp) })));
+      }
+
+      const erd = sessionStorage.getItem(ERD_KEY);
+      if (erd) setErdMermaid(erd);
+    } catch { /* corrupted — start fresh */ }
+    setInitializing(false);
+  }, []);
   const [appState, setAppState] = useState<AppState>({ kind: "idle" });
   const [history, setHistory] = useState<QueryHistoryItem[]>([]);
   const [activeTab, setActiveTab] = useState("query");
@@ -48,12 +99,29 @@ export default function Home() {
   const [erdLoading, setErdLoading] = useState(false);
   const [erdError, setErdError] = useState<string | null>(null);
 
+  // Keep history in sync with sessionStorage (skip until mount effect finishes)
+  useEffect(() => {
+    if (initializing) return;
+    try { sessionStorage.setItem(HISTORY_KEY, JSON.stringify(history)); } catch { /* ignore */ }
+  }, [history, initializing]);
+
+  // Keep ERD in sync with sessionStorage
+  useEffect(() => {
+    if (initializing) return;
+    try {
+      if (erdMermaid) sessionStorage.setItem(ERD_KEY, erdMermaid);
+      else sessionStorage.removeItem(ERD_KEY);
+    } catch { /* ignore */ }
+  }, [erdMermaid, initializing]);
+
   function handleConnected(config: ConnectionConfig, s: Schema, schemas: string[]) {
+    const schemaName = schemas[0] ?? "public";
     setConnectionConfig(config);
     setSchema(s);
     setDbSchemas(schemas);
-    setCurrentDbSchema(schemas[0] ?? "public");
+    setCurrentDbSchema(schemaName);
     setConnected(true);
+    saveSession(config, s, schemas, schemaName);
   }
 
   function addHistory(item: Omit<QueryHistoryItem, "id" | "timestamp">) {
@@ -241,9 +309,17 @@ export default function Home() {
     setAppState({ kind: "idle" });
   }
 
-  function handleHistorySelect(item: QueryHistoryItem) {
+  async function handleHistorySelect(item: QueryHistoryItem) {
     setCurrentPrompt(item.prompt);
     setActiveTab("query");
+    if (item.queryType === "SELECT") {
+      setAppState({ kind: "loading" });
+      try {
+        await processSQL(item.sql, item.prompt);
+      } catch (err) {
+        setAppState({ kind: "error", message: err instanceof Error ? err.message : "Unexpected error" });
+      }
+    }
   }
 
   function refreshSchema(schemaName = currentDbSchema) {
@@ -259,6 +335,7 @@ export default function Home() {
           setSchema(d.schema);
           setErdMermaid(null);
           setErdError(null);
+          if (connectionConfig) saveSession(connectionConfig, d.schema, dbSchemas, schemaName);
         }
       });
   }
@@ -275,7 +352,10 @@ export default function Home() {
       body: JSON.stringify({ connectionConfig, schemaName }),
     });
     const data = await res.json();
-    if (data.schema) setSchema(data.schema);
+    if (data.schema) {
+      setSchema(data.schema);
+      saveSession(connectionConfig, data.schema, dbSchemas, schemaName);
+    }
   }
 
   function handleImported() {
@@ -308,6 +388,14 @@ export default function Home() {
     }
   }
 
+  if (initializing) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <div className="text-sm text-muted-foreground animate-pulse">Loading...</div>
+      </div>
+    );
+  }
+
   if (!connected || !schema || !connectionConfig) {
     return <ConnectionForm onConnected={handleConnected} />;
   }
@@ -324,7 +412,7 @@ export default function Home() {
             variant="ghost"
             size="sm"
             className="h-6 text-xs text-muted-foreground"
-            onClick={() => { setConnected(false); setSchema(null); setConnectionConfig(null); }}
+            onClick={() => { clearSession(); setConnected(false); setSchema(null); setConnectionConfig(null); }}
           >
             Disconnect
           </Button>
@@ -353,6 +441,8 @@ export default function Home() {
             <PromptInput
               onSubmit={handlePrompt}
               loading={appState.kind === "loading"}
+              value={currentPrompt}
+              onChange={setCurrentPrompt}
             />
 
             <Separator />
