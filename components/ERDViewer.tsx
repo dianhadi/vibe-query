@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { Schema } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -8,38 +8,21 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 interface ERDViewerProps {
   schema: Schema;
   dbSchema: string;
-  connectionConfig: object;
+  mermaidCode: string | null;
+  loading: boolean;
+  error: string | null;
+  onGenerate: () => void;
 }
 
-export default function ERDViewer({ schema, dbSchema }: ERDViewerProps) {
+export default function ERDViewer({
+  schema,
+  dbSchema,
+  mermaidCode,
+  loading,
+  error,
+  onGenerate,
+}: ERDViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [mermaidCode, setMermaidCode] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function generate() {
-    setLoading(true);
-    setError(null);
-    setMermaidCode(null);
-
-    try {
-      const res = await fetch("/api/erd", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ schema, dbSchema }),
-      });
-      const data = await res.json();
-      if (data.error) {
-        setError(data.error);
-      } else {
-        setMermaidCode(data.mermaid);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to generate ERD");
-    } finally {
-      setLoading(false);
-    }
-  }
 
   // Render mermaid diagram whenever mermaidCode changes
   useEffect(() => {
@@ -60,9 +43,8 @@ export default function ERDViewer({ schema, dbSchema }: ERDViewerProps) {
           containerRef.current.innerHTML = svg;
         }
       } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Mermaid render failed");
-        }
+        // render error is surfaced via the error prop from parent
+        console.error("Mermaid render error:", err);
       }
     }
 
@@ -79,7 +61,7 @@ export default function ERDViewer({ schema, dbSchema }: ERDViewerProps) {
             AI-generated from <span className="font-mono">{dbSchema}</span> schema · {schema.tables.length} tables
           </p>
         </div>
-        <Button onClick={generate} disabled={loading} size="sm">
+        <Button onClick={onGenerate} disabled={loading} size="sm">
           {loading ? "Generating..." : mermaidCode ? "Regenerate" : "Generate ERD"}
         </Button>
       </div>
@@ -90,17 +72,13 @@ export default function ERDViewer({ schema, dbSchema }: ERDViewerProps) {
         </Alert>
       )}
 
-      {mermaidCode && (
+      {mermaidCode && !error && (
         <div className="flex-1 flex flex-col gap-2 min-h-0">
-          {/* Rendered diagram */}
-          {!error && (
-            <div
-              ref={containerRef}
-              className="flex-1 rounded-md border bg-white overflow-auto p-4 min-h-[300px] flex items-start justify-center"
-            />
-          )}
+          <div
+            ref={containerRef}
+            className="flex-1 rounded-md border bg-white overflow-auto p-4 min-h-[300px] flex items-start justify-center"
+          />
 
-          {/* Raw Mermaid code toggle */}
           <details className="rounded-md border text-xs">
             <summary className="px-3 py-2 cursor-pointer text-muted-foreground hover:text-foreground select-none">
               Mermaid source

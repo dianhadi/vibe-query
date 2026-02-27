@@ -43,6 +43,9 @@ export default function Home() {
   const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE);
   const [sortCol, setSortCol] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [erdMermaid, setErdMermaid] = useState<string | null>(null);
+  const [erdLoading, setErdLoading] = useState(false);
+  const [erdError, setErdError] = useState<string | null>(null);
 
   function handleConnected(config: ConnectionConfig, s: Schema, schemas: string[]) {
     setConnectionConfig(config);
@@ -250,13 +253,21 @@ export default function Home() {
       body: JSON.stringify({ connectionConfig, schemaName }),
     })
       .then((r) => r.json())
-      .then((d) => { if (d.schema) setSchema(d.schema); });
+      .then((d) => {
+        if (d.schema) {
+          setSchema(d.schema);
+          setErdMermaid(null);
+          setErdError(null);
+        }
+      });
   }
 
   async function handleDbSchemaChange(schemaName: string) {
     if (!connectionConfig) return;
     setCurrentDbSchema(schemaName);
     setAppState({ kind: "idle" });
+    setErdMermaid(null);
+    setErdError(null);
     const res = await fetch("/api/schema", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -268,6 +279,32 @@ export default function Home() {
 
   function handleImported() {
     refreshSchema();
+    setErdMermaid(null);
+    setErdError(null);
+  }
+
+  async function handleGenerateERD() {
+    if (!schema) return;
+    setErdLoading(true);
+    setErdError(null);
+    setErdMermaid(null);
+    try {
+      const res = await fetch("/api/erd", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ schema, dbSchema: currentDbSchema }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setErdError(data.error);
+      } else {
+        setErdMermaid(data.mermaid);
+      }
+    } catch (err) {
+      setErdError(err instanceof Error ? err.message : "Failed to generate ERD");
+    } finally {
+      setErdLoading(false);
+    }
   }
 
   if (!connected || !schema || !connectionConfig) {
@@ -400,7 +437,10 @@ export default function Home() {
             <ERDViewer
               schema={schema}
               dbSchema={currentDbSchema}
-              connectionConfig={connectionConfig}
+              mermaidCode={erdMermaid}
+              loading={erdLoading}
+              error={erdError}
+              onGenerate={handleGenerateERD}
             />
           </TabsContent>
 
