@@ -61,6 +61,9 @@ export interface ColumnMapping {
   originalName: string;
   mappedName: string;
   dataType: string;
+  primaryKey?: boolean;
+  /** "tableName.columnName" — FK reference to an existing table column, or null */
+  references?: string | null;
 }
 
 export const PAGE_SIZES = [20, 50, 100] as const;

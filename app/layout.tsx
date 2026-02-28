@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "vibe-query",
+  title: "vibeQL",
   description: "Query your database with natural language",
 };
 

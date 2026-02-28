@@ -1,10 +1,12 @@
 import * as XLSX from "xlsx";
 import { ParsedData } from "./csv";
 
-export function parseExcel(buffer: Buffer): ParsedData {
-  const workbook = XLSX.read(buffer, { type: "buffer" });
-  const sheetName = workbook.SheetNames[0];
-  const sheet = workbook.Sheets[sheetName];
+export interface SheetData {
+  sheetName: string;
+  data: ParsedData;
+}
+
+function sheetToData(sheet: XLSX.WorkSheet): ParsedData {
 
   const raw = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
     header: 1,
@@ -25,4 +27,18 @@ export function parseExcel(buffer: Buffer): ParsedData {
   });
 
   return { headers, rows };
+}
+
+export function parseExcel(buffer: Buffer): ParsedData {
+  const workbook = XLSX.read(buffer, { type: "buffer" });
+  const sheetName = workbook.SheetNames[0];
+  return sheetToData(workbook.Sheets[sheetName]);
+}
+
+export function parseExcelAllSheets(buffer: Buffer): SheetData[] {
+  const workbook = XLSX.read(buffer, { type: "buffer" });
+  return workbook.SheetNames.map((sheetName) => ({
+    sheetName,
+    data: sheetToData(workbook.Sheets[sheetName]),
+  }));
 }
