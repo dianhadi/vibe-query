@@ -15,7 +15,7 @@ A web app that lets you query your PostgreSQL database using natural language in
 - **ERD viewer** — AI generates a Mermaid entity-relationship diagram from your schema
 - **Query analyzer** — runs `EXPLAIN ANALYZE` and asks AI for index/performance recommendations
 - Multiple PostgreSQL schemas supported via sidebar dropdown
-- Import CSV or Excel files directly into tables with column mapping
+- Import CSV or Excel files (including multi-sheet) into tables — with PK, FK, and type configuration per column
 - Query history tracked per session
 
 ---
@@ -140,7 +140,21 @@ After a DDL commit the schema sidebar refreshes automatically.
 
 ### File import
 
-Go to the **Import** tab, upload a `.csv`, `.xlsx`, or `.xls` file, set the target table name, review the column mapping, and confirm. The same preview → commit flow applies.
+Go to the **Import** tab and upload a `.csv`, `.xlsx`, or `.xls` file.
+
+**Column mapping preview** — before committing you can review and edit:
+- **PK** checkbox — mark a column as `PRIMARY KEY`. Columns named `id`, `<table>_id`, or `<singular>_id` are auto-checked and typed as `SERIAL`.
+- **Column name** — rename any column before it lands in the database.
+- **Data type** — 19 types supported (TEXT, INTEGER, BIGINT, SERIAL, BIGSERIAL, NUMERIC, BOOLEAN, DATE, TIMESTAMP, TIMESTAMPTZ, UUID, JSONB, and more). Types are inferred automatically.
+- **Foreign key** — optionally set a `REFERENCES table(column)` constraint. Columns named `user_id`, `order_id`, etc. are pre-filled when the referenced table exists.
+
+**Multi-sheet Excel** — each sheet maps to a separate table. Sheet names are used as table names (editable). You can expand each sheet to configure its column mappings individually.
+
+**Table name conflict detection** — on preview the server checks whether the target table already exists:
+- If the existing table has ≥ 50 % of columns in common → **blocked**, must rename.
+- If the existing table has very different columns → **auto-renamed** to `<name>_1` (or next available suffix).
+
+The same preview → confirm flow applies before any rows are written.
 
 ---
 

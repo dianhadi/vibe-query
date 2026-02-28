@@ -67,15 +67,22 @@ Users connect to a PostgreSQL database, describe what they want in plain languag
 
 ### 6. File Import → Table
 - User uploads `.xlsx`, `.xls`, or `.csv` files via the **Import** tab
-- Preview of first 10 rows, editable column mappings and types
-- Generates `CREATE TABLE IF NOT EXISTS` + batch `INSERT` statements
-- Same mutation safety flow (preview → commit CTA)
+- **Multi-sheet Excel**: each sheet is mapped to its own table; accordion UI per sheet
+- Preview of first 10 rows; editable column mappings with per-column controls:
+  - **PK checkbox** — mark as `PRIMARY KEY`; auto-checked for `id`, `<table>_id`, `<singular>_id`; type auto-set to `SERIAL`
+  - **Column name** — rename before import
+  - **Data type** — 19 types with auto-inference (SMALLINT/INTEGER/BIGINT via BigInt range check, UUID, TIMESTAMPTZ, TIMESTAMP, DATE, TIME, JSONB, BOOLEAN, SERIAL, BIGSERIAL, etc.)
+  - **Foreign key** — optional `REFERENCES table(column)` constraint; dropdown shows PK/UNIQUE columns of existing tables; auto-detected from `*_id` column name patterns
+- **Table conflict detection** (checked during preview via `information_schema`):
+  - ≥ 50% column overlap → blocked, user must rename
+  - < 50% column overlap → auto-renamed to `<name>_1` (or next available suffix)
+- Generates `CREATE TABLE` + batch `INSERT` statements (500 rows/batch)
 - Schema sidebar refreshes after successful import
 
 ### 7. Query History
 - All executed queries (reads and committed writes) stored in React state for the session
 - **History** tab shows timestamp, prompt used, SQL, and row count
-- Clicking a history item re-populates the prompt input and switches to the Query tab
+- Clicking a history item re-populates the prompt input, switches to the Query tab, and **auto-runs** the query if it is a SELECT
 
 ### 8. ERD Viewer
 - **ERD** tab → **Generate ERD** button
@@ -139,7 +146,7 @@ vibe-query/
 │       ├── excel.ts              # xlsx parsing
 │       └── csv.ts                # papaparse wrapper
 ├── types/
-│   └── index.ts                  # Shared types: QueryResult, Schema, PageSize, etc.
+│   └── index.ts                  # Shared types: QueryResult, Schema, ColumnMapping (with primaryKey, references), PageSize, etc.
 ├── public/
 │   └── vibeQL-logo.svg           # Brand logo (indigo gradient)
 ├── .env.local                    # Local env vars (gitignored)
@@ -179,7 +186,11 @@ vibe-query/
 
 ### `POST /api/import`
 - Body: `multipart/form-data` with file + `{ tableName, columnMappings, confirmed }`
-- Returns: `{ sql, preview?, result? }`
+- For multi-sheet Excel: `sheetsConfig` (per-sheet `{ sheetName, tableName, columnMappings }`)
+- Preview (`confirmed=false`): infers types, checks table conflicts, fetches FK-eligible columns — all in one DB connection
+- Commit (`confirmed=true`): runs `CREATE TABLE` + batched `INSERT` statements
+- Returns preview: `{ isMultiSheet, fkOptions, sheets | preview: { columnMappings, tableExists, similarity, suggestedName }, similarityThreshold }`
+- Returns commit: `{ result: { rowsInserted, sheetsImported? } }`
 
 ### `POST /api/erd`
 - Body: `{ schema, dbSchema? }`
