@@ -16,6 +16,19 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import ReactMarkdown from "react-markdown";
 import {
+  ChevronLeft,
+  ChevronRight,
+  Pencil,
+  Copy,
+  Check,
+  Zap,
+  Play,
+  X,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
+} from "lucide-react";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -101,12 +114,10 @@ export default function QueryResult({
   }
 
   function sortIndicator(col: string) {
-    if (sortCol !== col) return <span className="ml-1 opacity-20">⇅</span>;
-    return (
-      <span className="ml-1 opacity-80">
-        {sortDir === "asc" ? "↑" : "↓"}
-      </span>
-    );
+    if (sortCol !== col) return <ArrowUpDown className="ml-1 inline h-3 w-3 opacity-30" />;
+    return sortDir === "asc"
+      ? <ArrowUp className="ml-1 inline h-3 w-3 opacity-80" />
+      : <ArrowDown className="ml-1 inline h-3 w-3 opacity-80" />;
   }
 
   async function copySQL() {
@@ -152,29 +163,31 @@ export default function QueryResult({
           <div className="flex items-center gap-1">
             {editing ? (
               <>
-                <Button variant="default" size="sm" className="h-6 text-xs" onClick={handleRerun} disabled={!editedSql.trim()}>
-                  Run
+                <Button variant="default" size="sm" className="h-6 px-2 text-xs gap-1" onClick={handleRerun} disabled={!editedSql.trim()}>
+                  <Play className="h-3 w-3" /> Run
                 </Button>
-                <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={cancelEditing}>
-                  Cancel
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={cancelEditing} title="Cancel">
+                  <X className="h-3.5 w-3.5" />
                 </Button>
               </>
             ) : (
               <>
-                <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={startEditing}>
-                  Edit
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={startEditing} title="Edit SQL">
+                  <Pencil className="h-3.5 w-3.5" />
                 </Button>
-                <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={copySQL}>
-                  {copied ? "Copied!" : "Copy"}
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={copySQL} title={copied ? "Copied!" : "Copy SQL"}>
+                  {copied ? <Check className="h-3.5 w-3.5 text-green-600" /> : <Copy className="h-3.5 w-3.5" />}
                 </Button>
                 {onAnalyze && (
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-6 text-xs"
+                    className="h-6 px-2 text-xs gap-1"
                     onClick={() => onAnalyze(displaySql)}
                     disabled={analyzeLoading}
+                    title="Analyze query plan"
                   >
+                    <Zap className="h-3.5 w-3.5" />
                     {analyzeLoading ? "Analyzing..." : "Analyze"}
                   </Button>
                 )}
@@ -287,16 +300,16 @@ export default function QueryResult({
 
           {/* Server-side pagination controls */}
           {paginated && onPageChange && (
-            <div className="flex items-center gap-2 text-sm">
-              <Button variant="outline" size="sm" onClick={() => onPageChange(page - 1)} disabled={page === 0 || pageLoading}>
-                Previous
+            <div className="flex items-center gap-1.5 text-sm">
+              <Button variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => onPageChange(page - 1)} disabled={page === 0 || pageLoading} title="Previous page">
+                <ChevronLeft className="h-4 w-4" />
               </Button>
-              <span className="text-muted-foreground">Page {page + 1}</span>
-              <Button variant="outline" size="sm" onClick={() => onPageChange(page + 1)} disabled={!result.hasMore || pageLoading}>
-                Next
+              <span className="text-xs text-muted-foreground tabular-nums min-w-[1.5rem] text-center">{page + 1}</span>
+              <Button variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => onPageChange(page + 1)} disabled={!result.hasMore || pageLoading} title="Next page">
+                <ChevronRight className="h-4 w-4" />
               </Button>
               {pageLoading && (
-                <span className="text-xs text-muted-foreground animate-pulse">Loading...</span>
+                <span className="text-xs text-muted-foreground animate-pulse ml-1">Loading...</span>
               )}
               <div className="ml-auto flex items-center gap-2">
                 <span className="text-xs text-muted-foreground">Rows per page</span>
@@ -316,15 +329,15 @@ export default function QueryResult({
 
           {/* Client-side pagination controls */}
           {!paginated && clientTotalPages > 1 && (
-            <div className="flex items-center gap-2 text-sm">
-              <Button variant="outline" size="sm" onClick={() => setClientPage((p) => Math.max(0, p - 1))} disabled={clientPage === 0}>
-                Previous
+            <div className="flex items-center gap-1.5 text-sm">
+              <Button variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => setClientPage((p) => Math.max(0, p - 1))} disabled={clientPage === 0} title="Previous page">
+                <ChevronLeft className="h-4 w-4" />
               </Button>
-              <span className="text-muted-foreground">
-                Page {clientPage + 1} of {clientTotalPages}
+              <span className="text-xs text-muted-foreground tabular-nums min-w-[1.5rem] text-center">
+                {clientPage + 1} / {clientTotalPages}
               </span>
-              <Button variant="outline" size="sm" onClick={() => setClientPage((p) => Math.min(clientTotalPages - 1, p + 1))} disabled={clientPage === clientTotalPages - 1}>
-                Next
+              <Button variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => setClientPage((p) => Math.min(clientTotalPages - 1, p + 1))} disabled={clientPage === clientTotalPages - 1} title="Next page">
+                <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
           )}

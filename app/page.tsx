@@ -21,6 +21,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import Image from "next/image";
+import { LogOut, Terminal, Upload, GitBranch, Clock } from "lucide-react";
 
 type AppState =
   | { kind: "idle" }
@@ -99,6 +100,19 @@ export default function Home() {
   const [erdLoading, setErdLoading] = useState(false);
   const [erdError, setErdError] = useState<string | null>(null);
 
+  function resetState() {
+    setAppState({ kind: "idle" });
+    setHistory([]);
+    setActiveTab("query");
+    setCurrentPrompt("");
+    setPageSize(DEFAULT_PAGE_SIZE);
+    setSortCol(null);
+    setSortDir("asc");
+    setErdMermaid(null);
+    setErdLoading(false);
+    setErdError(null);
+  }
+
   // Keep history in sync with sessionStorage (skip until mount effect finishes)
   useEffect(() => {
     if (initializing) return;
@@ -116,6 +130,7 @@ export default function Home() {
 
   function handleConnected(config: ConnectionConfig, s: Schema, schemas: string[]) {
     const schemaName = schemas[0] ?? "public";
+    resetState();
     setConnectionConfig(config);
     setSchema(s);
     setDbSchemas(schemas);
@@ -405,16 +420,17 @@ export default function Home() {
       <Toaster />
 
       {/* Left sidebar: schema */}
-      <aside className="w-56 border-r flex flex-col shrink-0">
+      <aside className="w-56 border-r flex flex-col shrink-0 bg-muted/40">
         <div className="px-3 py-3 border-b flex items-center justify-between">
           <Image src="/vibeQL-logo.svg" alt="vibeQL" width={88} height={28} />
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 text-xs text-muted-foreground"
-            onClick={() => { clearSession(); setConnected(false); setSchema(null); setConnectionConfig(null); }}
+            className="h-6 w-6 p-0 text-muted-foreground"
+            onClick={() => { clearSession(); resetState(); setConnected(false); setSchema(null); setConnectionConfig(null); }}
+            title="Disconnect"
           >
-            Disconnect
+            <LogOut className="h-3.5 w-3.5" />
           </Button>
         </div>
         <SchemaExplorer
@@ -429,11 +445,40 @@ export default function Home() {
       <main className="flex-1 flex flex-col overflow-hidden">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
           <div className="border-b px-4">
-            <TabsList className="h-10">
-              <TabsTrigger value="query">Query</TabsTrigger>
-              <TabsTrigger value="import">Import</TabsTrigger>
-              <TabsTrigger value="erd">ERD</TabsTrigger>
-              <TabsTrigger value="history">History ({history.length})</TabsTrigger>
+            <TabsList className="h-11 gap-1 bg-transparent p-0">
+              <TabsTrigger
+                value="query"
+                className="h-11 gap-2 rounded-none border-b-2 border-transparent px-4 data-[state=active]:border-primary data-[state=active]:bg-primary/10 data-[state=active]:shadow-none text-muted-foreground data-[state=active]:text-primary font-medium"
+              >
+                <Terminal className="h-4 w-4" />
+                Query
+              </TabsTrigger>
+              <TabsTrigger
+                value="import"
+                className="h-11 gap-2 rounded-none border-b-2 border-transparent px-4 data-[state=active]:border-primary data-[state=active]:bg-primary/10 data-[state=active]:shadow-none text-muted-foreground data-[state=active]:text-primary font-medium"
+              >
+                <Upload className="h-4 w-4" />
+                Import
+              </TabsTrigger>
+              <TabsTrigger
+                value="erd"
+                className="h-11 gap-2 rounded-none border-b-2 border-transparent px-4 data-[state=active]:border-primary data-[state=active]:bg-primary/10 data-[state=active]:shadow-none text-muted-foreground data-[state=active]:text-primary font-medium"
+              >
+                <GitBranch className="h-4 w-4" />
+                ERD
+              </TabsTrigger>
+              <TabsTrigger
+                value="history"
+                className="h-11 gap-2 rounded-none border-b-2 border-transparent px-4 data-[state=active]:border-primary data-[state=active]:bg-primary/10 data-[state=active]:shadow-none text-muted-foreground data-[state=active]:text-primary font-medium"
+              >
+                <Clock className="h-4 w-4" />
+                History
+                {history.length > 0 && (
+                  <span className="ml-0.5 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary leading-none">
+                    {history.length}
+                  </span>
+                )}
+              </TabsTrigger>
             </TabsList>
           </div>
 

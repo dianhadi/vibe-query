@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Play } from "lucide-react";
 
 interface PromptInputProps {
   onSubmit: (prompt: string) => void;
@@ -42,7 +43,8 @@ export default function PromptInput({ onSubmit, loading, value, onChange }: Prom
         className="min-h-[80px] resize-none flex-1"
         disabled={loading}
       />
-      <Button type="submit" disabled={loading || !prompt.trim()} className="self-end px-6">
+      <Button type="submit" disabled={loading || !prompt.trim()} className="self-end px-5 gap-2">
+        <Play className="h-4 w-4" />
         {loading ? "Generating..." : "Run"}
       </Button>
     </form>

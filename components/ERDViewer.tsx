@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { Schema } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { GitBranch, RefreshCw } from "lucide-react";
 
 interface ERDViewerProps {
   schema: Schema;
@@ -61,7 +62,10 @@ export default function ERDViewer({
             AI-generated from <span className="font-mono">{dbSchema}</span> schema · {schema.tables.length} tables
           </p>
         </div>
-        <Button onClick={onGenerate} disabled={loading} size="sm">
+        <Button onClick={onGenerate} disabled={loading} size="sm" className="gap-2">
+          {mermaidCode
+            ? <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+            : <GitBranch className="h-3.5 w-3.5" />}
           {loading ? "Generating..." : mermaidCode ? "Regenerate" : "Generate ERD"}
         </Button>
       </div>

@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { QueryType } from "@/types";
+import { Check, X, AlertTriangle } from "lucide-react";
 
 interface MutationConfirmProps {
   sql: string;
@@ -60,6 +61,7 @@ export default function MutationConfirm({
       {/* DDL extra confirmation */}
       {isDDL && (
         <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
           <AlertDescription>
             <p className="mb-2 font-semibold">
               This is a DDL statement (CREATE/ALTER/DROP). This action may be irreversible.
@@ -86,11 +88,13 @@ export default function MutationConfirm({
           variant="destructive"
           onClick={onCommit}
           disabled={loading || !ddlConfirmed}
-          className="flex-1"
+          className="flex-1 gap-2"
         >
+          <Check className="h-4 w-4" />
           {loading ? "Committing..." : "Commit Changes"}
         </Button>
-        <Button variant="outline" onClick={onCancel} disabled={loading}>
+        <Button variant="outline" onClick={onCancel} disabled={loading} className="gap-2">
+          <X className="h-4 w-4" />
           Cancel
         </Button>
       </div>
