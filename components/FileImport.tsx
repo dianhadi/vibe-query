@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useMemo } from "react";
-import { ConnectionConfig, ColumnMapping } from "@/types";
+import { ConnectionConfig, ColumnMapping, Dialect } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -22,9 +22,10 @@ import { Upload, Check, ChevronDown, ChevronRight, FileSpreadsheet, AlertTriangl
 interface FileImportProps {
   connectionConfig: ConnectionConfig;
   onImported: () => void;
+  dialect?: Dialect;
 }
 
-const DATA_TYPES = [
+const PG_DATA_TYPES = [
   // String
   "TEXT", "VARCHAR", "CHAR",
   // Integer
@@ -41,6 +42,23 @@ const DATA_TYPES = [
   "UUID", "JSONB", "BYTEA",
 ];
 
+const MYSQL_DATA_TYPES = [
+  // String
+  "TEXT", "VARCHAR", "CHAR",
+  // Integer
+  "TINYINT", "SMALLINT", "INT", "BIGINT",
+  // Auto-increment
+  "INT AUTO_INCREMENT", "BIGINT AUTO_INCREMENT",
+  // Decimal / float
+  "DECIMAL", "FLOAT", "DOUBLE",
+  // Boolean
+  "BOOLEAN",
+  // Date / time
+  "DATE", "TIME", "DATETIME", "TIMESTAMP",
+  // Other
+  "JSON", "BLOB",
+];
+
 interface SheetConfig {
   sheetName: string;
   tableName: string;
@@ -52,7 +70,8 @@ interface SheetConfig {
   suggestedName: string;
 }
 
-export default function FileImport({ connectionConfig, onImported }: FileImportProps) {
+export default function FileImport({ connectionConfig, onImported, dialect = "postgresql" }: FileImportProps) {
+  const DATA_TYPES = dialect === "mysql" ? MYSQL_DATA_TYPES : PG_DATA_TYPES;
   const [file, setFile] = useState<File | null>(null);
   const [stage, setStage] = useState<"upload" | "preview" | "done">("upload");
   const [loading, setLoading] = useState(false);

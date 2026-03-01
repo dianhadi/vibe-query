@@ -1,9 +1,12 @@
+export type Dialect = "postgresql" | "mysql";
+
 export interface ConnectionConfig {
   host: string;
   port: number;
   user: string;
   password: string;
   database: string;
+  dialect: Dialect;
 }
 
 export interface ColumnInfo {

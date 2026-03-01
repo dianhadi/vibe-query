@@ -17,8 +17,9 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    const dialect = connectionConfig.dialect ?? "postgresql";
     const schema = await withClient(connectionConfig, (client) =>
-      introspectSchema(client, schemaName)
+      introspectSchema(client, schemaName, dialect)
     );
     return NextResponse.json({ schema });
   } catch (err) {

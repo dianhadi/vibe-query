@@ -129,7 +129,8 @@ export default function Home() {
   }, [erdMermaid, initializing]);
 
   function handleConnected(config: ConnectionConfig, s: Schema, schemas: string[]) {
-    const schemaName = schemas[0] ?? "public";
+    // For MySQL, dbSchemas is empty; use the database name as the current schema
+    const schemaName = schemas.length > 0 ? schemas[0] : config.database;
     resetState();
     setConnectionConfig(config);
     setSchema(s);
@@ -222,7 +223,7 @@ export default function Home() {
       const genRes = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, schema, pageSize, dbSchema: currentDbSchema }),
+        body: JSON.stringify({ prompt, schema, pageSize, dbSchema: currentDbSchema, dialect: connectionConfig.dialect }),
       });
       const genData = await genRes.json();
       if (genData.error) {
@@ -287,7 +288,7 @@ export default function Home() {
   async function handleSortChange(col: string | null, dir: "asc" | "desc") {
     if (appState.kind !== "select_result") return;
     const { baseSql, paginated, pageSize: size } = appState;
-    const sortedSql = applyOrderBy(baseSql, col, dir);
+    const sortedSql = applyOrderBy(baseSql, col, dir, connectionConfig?.dialect);
     setAppState({ ...appState, pageLoading: true });
     if (paginated) {
       await runPaginatedSelect(sortedSql, 0, size as PageSize, currentPrompt, col, dir);
@@ -388,7 +389,7 @@ export default function Home() {
       const res = await fetch("/api/erd", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ schema, dbSchema: currentDbSchema }),
+        body: JSON.stringify({ schema, dbSchema: currentDbSchema, dialect: connectionConfig?.dialect }),
       });
       const data = await res.json();
       if (data.error) {
@@ -566,7 +567,7 @@ export default function Home() {
           </TabsContent>
 
           <TabsContent value="import" className="flex-1 overflow-auto p-4 mt-0">
-            <FileImport connectionConfig={connectionConfig} onImported={handleImported} />
+            <FileImport connectionConfig={connectionConfig} onImported={handleImported} dialect={connectionConfig.dialect} />
           </TabsContent>
 
           <TabsContent value="erd" className="flex-1 overflow-auto p-4 mt-0 h-full">

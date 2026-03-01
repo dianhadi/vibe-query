@@ -21,18 +21,20 @@ export default function SchemaExplorer({
   return (
     <div className="h-full flex flex-col">
       <div className="px-3 py-2 border-b space-y-2">
-        <Select value={currentDbSchema} onValueChange={onDbSchemaChange}>
-          <SelectTrigger className="h-7 text-xs w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {dbSchemas.map((s) => (
-              <SelectItem key={s} value={s} className="text-xs">
-                {s}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {dbSchemas.length > 0 && (
+          <Select value={currentDbSchema} onValueChange={onDbSchemaChange}>
+            <SelectTrigger className="h-7 text-xs w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {dbSchemas.map((s) => (
+                <SelectItem key={s} value={s} className="text-xs">
+                  {s}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
         <p className="text-xs text-muted-foreground">{schema.tables.length} tables</p>
       </div>
       <ScrollArea className="flex-1">

@@ -1,4 +1,5 @@
 import { Schema } from "@/types";
+import { Dialect } from "@/lib/db/dialect";
 import { buildSystemPrompt, buildERDSystemPrompt, buildAnalyzeSystemPrompt } from "./prompts";
 import { schemaToString } from "@/lib/db/introspect";
 import { AIAdapter } from "./adapters/types";
@@ -30,30 +31,34 @@ function createAdapter(): AIAdapter {
 
 export async function analyzeQueryPlan(
   sql: string,
-  explainText: string
+  explainText: string,
+  dialect: Dialect = "postgresql"
 ): Promise<string> {
   const adapter = createAdapter();
-  const systemPrompt = buildAnalyzeSystemPrompt();
-  const userPrompt = `SQL Query:\n\`\`\`sql\n${sql}\n\`\`\`\n\nEXPLAIN ANALYZE output:\n\`\`\`\n${explainText}\n\`\`\``;
+  const systemPrompt = buildAnalyzeSystemPrompt(dialect);
+  const explainLabel = dialect === "mysql" ? "EXPLAIN" : "EXPLAIN ANALYZE";
+  const userPrompt = `SQL Query:\n\`\`\`sql\n${sql}\n\`\`\`\n\n${explainLabel} output:\n\`\`\`\n${explainText}\n\`\`\``;
   return adapter.generateSQL(systemPrompt, userPrompt);
 }
 
 export async function generateERD(
   schema: Schema,
-  dbSchema = "public"
+  dbSchema = "public",
+  dialect: Dialect = "postgresql"
 ): Promise<string> {
   const adapter = createAdapter();
-  const systemPrompt = buildERDSystemPrompt();
-  return adapter.generateSQL(systemPrompt, `Generate a Mermaid erDiagram for this schema:\n\n${schemaToString(schema, dbSchema)}`);
+  const systemPrompt = buildERDSystemPrompt(dialect);
+  return adapter.generateSQL(systemPrompt, `Generate a Mermaid erDiagram for this schema:\n\n${schemaToString(schema, dbSchema, dialect)}`);
 }
 
 export async function generateSQL(
   prompt: string,
   schema: Schema,
   pageSize?: number,
-  dbSchema = "public"
+  dbSchema = "public",
+  dialect: Dialect = "postgresql"
 ): Promise<string> {
   const adapter = createAdapter();
-  const systemPrompt = buildSystemPrompt(schemaToString(schema, dbSchema), pageSize, dbSchema);
+  const systemPrompt = buildSystemPrompt(schemaToString(schema, dbSchema, dialect), pageSize, dbSchema, dialect);
   return adapter.generateSQL(systemPrompt, prompt);
 }

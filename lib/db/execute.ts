@@ -1,5 +1,6 @@
-import { PoolClient } from "pg";
+import { DBClient } from "./client-types";
 import { QueryResult, QueryType } from "@/types";
+import { quoteIdent, Dialect } from "./dialect";
 
 export function detectQueryType(sql: string): QueryType {
   const trimmed = sql.trim().toUpperCase();
@@ -38,32 +39,31 @@ export function stripLimitOffset(sql: string): string {
 }
 
 /** Strips any trailing ORDER BY clause and appends a new one (or none if col is null). */
-export function applyOrderBy(sql: string, col: string | null, dir: "asc" | "desc"): string {
+export function applyOrderBy(sql: string, col: string | null, dir: "asc" | "desc", dialect: Dialect = "postgresql"): string {
   const stripped = sql
     .trim()
     .replace(/;\s*$/, "")
     .replace(/\s+ORDER\s+BY\s+.+$/i, "")
     .trim();
   if (!col) return stripped;
-  // Quote column name to handle reserved words and mixed case
-  const quoted = `"${col.replace(/"/g, '""')}"`;
+  const quoted = quoteIdent(col, dialect);
   return `${stripped} ORDER BY ${quoted} ${dir.toUpperCase()}`;
 }
 
 export async function executeSelect(
-  client: PoolClient,
+  client: DBClient,
   sql: string
 ): Promise<QueryResult> {
   const result = await client.query(sql);
   return {
     columns: result.fields.map((f) => f.name),
     rows: result.rows,
-    rowCount: result.rowCount ?? 0,
+    rowCount: result.rowCount,
   };
 }
 
 export async function executeSelectPaginated(
-  client: PoolClient,
+  client: DBClient,
   baseSql: string,
   page: number,
   pageSize: number
@@ -83,29 +83,29 @@ export async function executeSelectPaginated(
 }
 
 export async function executeMutationPreview(
-  client: PoolClient,
+  client: DBClient,
   sql: string
 ): Promise<{ rowsAffected: number; previewRows?: Record<string, unknown>[] }> {
-  await client.query("BEGIN");
+  await client.beginTransaction();
   try {
     const result = await client.query(sql);
-    const rowsAffected = result.rowCount ?? 0;
+    const rowsAffected = result.rowCount;
     let previewRows: Record<string, unknown>[] | undefined;
     if (result.rows && result.rows.length > 0) {
       previewRows = result.rows.slice(0, 20);
     }
-    await client.query("ROLLBACK");
+    await client.rollback();
     return { rowsAffected, previewRows };
   } catch (err) {
-    await client.query("ROLLBACK");
+    await client.rollback();
     throw err;
   }
 }
 
 export async function executeMutation(
-  client: PoolClient,
+  client: DBClient,
   sql: string
 ): Promise<{ rowsAffected: number }> {
   const result = await client.query(sql);
-  return { rowsAffected: result.rowCount ?? 0 };
+  return { rowsAffected: result.rowCount };
 }

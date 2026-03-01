@@ -4,6 +4,7 @@ import { executeMutation } from "@/lib/db/execute";
 import { parseCSV } from "@/lib/parsers/csv";
 import { parseExcel, parseExcelAllSheets } from "@/lib/parsers/excel";
 import { ConnectionConfig, ColumnMapping } from "@/types";
+import { Dialect, quoteIdent, mapImportType } from "@/lib/db/dialect";
 
 const INT16_MIN = BigInt(-32_768);
 const INT16_MAX = BigInt( 32_767);
@@ -81,49 +82,96 @@ async function fetchPreviewDBData(
     tables.map(({ tableName }) => [tableName, { exists: false, similarity: 0, suggestedName: tableName }])
   );
   const fkOptions: FKOption[] = [];
+  const dialect: Dialect = config.dialect ?? "postgresql";
+  // For MySQL use config.database as schemaName; for pg use "public"
+  const schemaName = dialect === "mysql" ? config.database : "public";
 
   try {
     await withClient(config, async (client) => {
-      // FK-eligible columns (PRIMARY KEY + UNIQUE) across all public tables
-      const fkRes = await client.query<{ table_name: string; column_name: string }>(`
-        SELECT DISTINCT c.table_name, c.column_name
-        FROM information_schema.columns c
-        JOIN information_schema.key_column_usage kcu
-          ON kcu.table_schema = c.table_schema
-          AND kcu.table_name = c.table_name
-          AND kcu.column_name = c.column_name
-        JOIN information_schema.table_constraints tc
-          ON tc.constraint_name = kcu.constraint_name
-          AND tc.table_schema = kcu.table_schema
-        WHERE c.table_schema = 'public'
-          AND tc.constraint_type IN ('PRIMARY KEY', 'UNIQUE')
-        ORDER BY c.table_name, c.column_name
-      `);
-      fkOptions.push(...fkRes.rows.map((r) => ({ table: r.table_name, column: r.column_name })));
-
-      // Table conflict checks
-      for (const { tableName, importColumns } of tables) {
-        const colRes = await client.query<{ column_name: string }>(
-          "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1",
-          [tableName]
+      if (dialect === "mysql") {
+        // FK-eligible columns (PRIMARY KEY + UNIQUE) for MySQL
+        const fkRes = await client.query(
+          `SELECT DISTINCT c.TABLE_NAME AS table_name, c.COLUMN_NAME AS column_name
+           FROM information_schema.COLUMNS c
+           JOIN information_schema.KEY_COLUMN_USAGE kcu
+             ON kcu.TABLE_SCHEMA = c.TABLE_SCHEMA
+             AND kcu.TABLE_NAME = c.TABLE_NAME
+             AND kcu.COLUMN_NAME = c.COLUMN_NAME
+           JOIN information_schema.TABLE_CONSTRAINTS tc
+             ON tc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
+             AND tc.TABLE_SCHEMA = kcu.TABLE_SCHEMA
+           WHERE c.TABLE_SCHEMA = ?
+             AND tc.CONSTRAINT_TYPE IN ('PRIMARY KEY', 'UNIQUE')
+           ORDER BY c.TABLE_NAME, c.COLUMN_NAME`,
+          [schemaName]
         );
-        if (colRes.rows.length === 0) continue;
+        fkOptions.push(...fkRes.rows.map((r) => ({ table: r.table_name as string, column: r.column_name as string })));
 
-        const existingCols = new Set(colRes.rows.map((r) => r.column_name));
-        const overlap = importColumns.filter((c) => existingCols.has(c)).length;
-        const similarity = overlap / Math.max(existingCols.size, importColumns.length);
-
-        let suggestedName = `${tableName}_1`;
-        for (let i = 1; i <= 9; i++) {
-          const candidate = `${tableName}_${i}`;
-          const check = await client.query(
-            "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1",
-            [candidate]
+        for (const { tableName, importColumns } of tables) {
+          const colRes = await client.query(
+            "SELECT COLUMN_NAME AS column_name FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?",
+            [schemaName, tableName]
           );
-          if (check.rows.length === 0) { suggestedName = candidate; break; }
-        }
+          if (colRes.rows.length === 0) continue;
 
-        conflicts.set(tableName, { exists: true, similarity, suggestedName });
+          const existingCols = new Set(colRes.rows.map((r) => r.column_name as string));
+          const overlap = importColumns.filter((c) => existingCols.has(c)).length;
+          const similarity = overlap / Math.max(existingCols.size, importColumns.length);
+
+          let suggestedName = `${tableName}_1`;
+          for (let i = 1; i <= 9; i++) {
+            const candidate = `${tableName}_${i}`;
+            const check = await client.query(
+              "SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?",
+              [schemaName, candidate]
+            );
+            if (check.rows.length === 0) { suggestedName = candidate; break; }
+          }
+
+          conflicts.set(tableName, { exists: true, similarity, suggestedName });
+        }
+      } else {
+        // PostgreSQL
+        const fkRes = await client.query(
+          `SELECT DISTINCT c.table_name, c.column_name
+           FROM information_schema.columns c
+           JOIN information_schema.key_column_usage kcu
+             ON kcu.table_schema = c.table_schema
+             AND kcu.table_name = c.table_name
+             AND kcu.column_name = c.column_name
+           JOIN information_schema.table_constraints tc
+             ON tc.constraint_name = kcu.constraint_name
+             AND tc.table_schema = kcu.table_schema
+           WHERE c.table_schema = $1
+             AND tc.constraint_type IN ('PRIMARY KEY', 'UNIQUE')
+           ORDER BY c.table_name, c.column_name`,
+          [schemaName]
+        );
+        fkOptions.push(...fkRes.rows.map((r) => ({ table: r.table_name as string, column: r.column_name as string })));
+
+        for (const { tableName, importColumns } of tables) {
+          const colRes = await client.query(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2",
+            [schemaName, tableName]
+          );
+          if (colRes.rows.length === 0) continue;
+
+          const existingCols = new Set(colRes.rows.map((r) => r.column_name as string));
+          const overlap = importColumns.filter((c) => existingCols.has(c)).length;
+          const similarity = overlap / Math.max(existingCols.size, importColumns.length);
+
+          let suggestedName = `${tableName}_1`;
+          for (let i = 1; i <= 9; i++) {
+            const candidate = `${tableName}_${i}`;
+            const check = await client.query(
+              "SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2",
+              [schemaName, candidate]
+            );
+            if (check.rows.length === 0) { suggestedName = candidate; break; }
+          }
+
+          conflicts.set(tableName, { exists: true, similarity, suggestedName });
+        }
       }
     });
   } catch {
@@ -177,25 +225,39 @@ function inferMappings(headers: string[], rows: Record<string, string>[], fkTarg
 function buildImportSQL(
   tableName: string,
   columnMappings: ColumnMapping[],
-  rows: Record<string, string>[]
+  rows: Record<string, string>[],
+  dialect: Dialect = "postgresql"
 ): string[] {
+  const q = (name: string) => quoteIdent(name, dialect);
+
   const cols = columnMappings.map((c) => {
-    let def = `"${c.mappedName}" ${c.dataType}`;
-    if (c.primaryKey) def += " PRIMARY KEY";
-    if (c.references) {
+    const mappedType = mapImportType(c.dataType, dialect);
+    const isAutoInc = dialect === "mysql" && (mappedType === "INT AUTO_INCREMENT" || mappedType === "BIGINT AUTO_INCREMENT");
+
+    let def: string;
+    if (isAutoInc) {
+      // MySQL: AUTO_INCREMENT must be inline with PRIMARY KEY
+      def = `${q(c.mappedName)} ${mappedType} PRIMARY KEY`;
+    } else {
+      def = `${q(c.mappedName)} ${mappedType}`;
+      if (c.primaryKey) def += " PRIMARY KEY";
+    }
+
+    if (c.references && !isAutoInc) {
       const dot = c.references.indexOf(".");
       if (dot > 0) {
         const refTable = c.references.slice(0, dot);
         const refCol = c.references.slice(dot + 1);
-        def += ` REFERENCES "${refTable}"("${refCol}")`;
+        def += ` REFERENCES ${q(refTable)}(${q(refCol)})`;
       }
     }
     return def;
   }).join(", ");
-  const createSQL = `CREATE TABLE "${tableName}" (${cols});`;
+
+  const createSQL = `CREATE TABLE ${q(tableName)} (${cols});`;
   if (rows.length === 0) return [createSQL];
 
-  const colNames = columnMappings.map((c) => `"${c.mappedName}"`).join(", ");
+  const colNames = columnMappings.map((c) => q(c.mappedName)).join(", ");
   const valuePlaceholders = rows.map((row) => {
     const vals = columnMappings.map((c) => {
       const val = row[c.originalName] ?? "";
@@ -209,7 +271,7 @@ function buildImportSQL(
   const insertSQLs: string[] = [];
   for (let i = 0; i < valuePlaceholders.length; i += batchSize) {
     const batch = valuePlaceholders.slice(i, i + batchSize).join(",\n  ");
-    insertSQLs.push(`INSERT INTO "${tableName}" (${colNames}) VALUES\n  ${batch};`);
+    insertSQLs.push(`INSERT INTO ${q(tableName)} (${colNames}) VALUES\n  ${batch};`);
   }
   return [createSQL, ...insertSQLs];
 }
@@ -237,6 +299,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid connectionConfig JSON" }, { status: 400 });
   }
 
+  const dialect: Dialect = connectionConfig.dialect ?? "postgresql";
   const confirmed = confirmedStr === "true";
   const isExcel = file.name.endsWith(".xlsx") || file.name.endsWith(".xls");
 
@@ -290,7 +353,7 @@ export async function POST(req: NextRequest) {
             for (const cfg of sheetsConfig) {
               const sheetData = sheets.find((s) => s.sheetName === cfg.sheetName);
               if (!sheetData) continue;
-              const sqls = buildImportSQL(cfg.tableName, cfg.columnMappings, sheetData.data.rows);
+              const sqls = buildImportSQL(cfg.tableName, cfg.columnMappings, sheetData.data.rows, dialect);
               for (const sql of sqls) await executeMutation(client, sql);
               totalRows += sheetData.data.rows.length;
             }
@@ -312,7 +375,7 @@ export async function POST(req: NextRequest) {
       ? JSON.parse(columnMappingsStr)
       : inferMappings(parsed.headers, parsed.rows, new Set(), tableName);
 
-    const sqls = buildImportSQL(tableName, columnMappings, parsed.rows);
+    const sqls = buildImportSQL(tableName, columnMappings, parsed.rows, dialect);
 
     if (!confirmed) {
       const importColumns = columnMappings.map((m) => m.mappedName);
@@ -324,7 +387,7 @@ export async function POST(req: NextRequest) {
         : inferMappings(parsed.headers, parsed.rows, fkTargetSet, tableName);
       const c = conflicts.get(tableName);
       return NextResponse.json({
-        sql: buildImportSQL(tableName, finalMappings, parsed.rows).join("\n"),
+        sql: buildImportSQL(tableName, finalMappings, parsed.rows, dialect).join("\n"),
         isMultiSheet: false,
         fkOptions,
         preview: {
