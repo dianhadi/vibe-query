@@ -6,6 +6,7 @@ import { AIAdapter } from "./adapters/types";
 import { AnthropicAdapter } from "./adapters/anthropic";
 import { OpenAIAdapter } from "./adapters/openai";
 import { OllamaAdapter } from "./adapters/ollama";
+import { GeminiAdapter } from "./adapters/gemini";
 
 function createAdapter(): AIAdapter {
   const provider = (process.env.AI_PROVIDER ?? "anthropic").toLowerCase();
@@ -24,8 +25,13 @@ function createAdapter(): AIAdapter {
     case "ollama": {
       return new OllamaAdapter(process.env.AI_MODEL, process.env.OLLAMA_BASE_URL);
     }
+    case "gemini": {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
+      return new GeminiAdapter(apiKey, process.env.AI_MODEL);
+    }
     default:
-      throw new Error(`Unknown AI_PROVIDER: "${provider}". Supported: anthropic, openai, ollama`);
+      throw new Error(`Unknown AI_PROVIDER: "${provider}". Supported: anthropic, openai, ollama, gemini`);
   }
 }
 
