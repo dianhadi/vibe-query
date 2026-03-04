@@ -65,6 +65,8 @@ export interface ColumnMapping {
   mappedName: string;
   dataType: string;
   primaryKey?: boolean;
+  /** false = NOT NULL; undefined/true = nullable (default) */
+  nullable?: boolean;
   /** "tableName.columnName" — FK reference to an existing table column, or null */
   references?: string | null;
 }

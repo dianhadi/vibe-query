@@ -17,6 +17,9 @@ export function mapImportType(type: string, d: Dialect): string {
     case "DOUBLE PRECISION":  return "DOUBLE";
     case "UUID":              return "VARCHAR(36)";
     case "BYTEA":             return "BLOB";
+    case "VARCHAR":           return "VARCHAR(255)";
+    case "CHAR":              return "CHAR(255)";
+    case "INTEGER":           return "INT";
     default:                  return type;
   }
 }

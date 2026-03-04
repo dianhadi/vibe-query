@@ -25,7 +25,13 @@ export function hasLimitClause(sql: string): boolean {
 
 /** Returns the top-level LIMIT value, or null if none. */
 export function getLimitValue(sql: string): number | null {
-  const match = /\bLIMIT\s+(\d+)\s*(?:OFFSET\s+\d+\s*)?;?\s*$/i.exec(sql.trim());
+  // Strip trailing line comments, semicolons, and whitespace
+  const cleaned = sql.trim().replace(/--[^\n]*$/, "").trim().replace(/;?\s*$/, "").trim();
+  // MySQL: LIMIT offset, count  (e.g. LIMIT 0, 50)
+  const mysqlComma = /\bLIMIT\s+\d+\s*,\s*(\d+)\s*$/i.exec(cleaned);
+  if (mysqlComma) return parseInt(mysqlComma[1], 10);
+  // Standard: LIMIT count [OFFSET offset]
+  const match = /\bLIMIT\s+(\d+)\s*(?:OFFSET\s+\d+)?\s*$/i.exec(cleaned);
   return match ? parseInt(match[1], 10) : null;
 }
 

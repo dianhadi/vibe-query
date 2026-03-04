@@ -239,14 +239,27 @@ export default function FileImport({ connectionConfig, onImported, dialect = "po
   }
 
   function updateSinglePK(index: number, value: boolean) {
-    setColumnMappings((prev) => prev.map((m, i) => (i === index ? { ...m, primaryKey: value || undefined } : m)));
+    setColumnMappings((prev) => prev.map((m, i) => (i === index ? { ...m, primaryKey: value || undefined, nullable: value ? false : m.nullable } : m)));
+  }
+
+  function updateSingleNullable(index: number, value: boolean) {
+    setColumnMappings((prev) => prev.map((m, i) => (i === index ? { ...m, nullable: value } : m)));
   }
 
   function updateSheetPK(sheetIdx: number, colIdx: number, value: boolean) {
     setSheets((prev) => prev.map((s, si) =>
       si !== sheetIdx ? s : {
         ...s,
-        columnMappings: s.columnMappings.map((m, ci) => (ci === colIdx ? { ...m, primaryKey: value || undefined } : m)),
+        columnMappings: s.columnMappings.map((m, ci) => (ci === colIdx ? { ...m, primaryKey: value || undefined, nullable: value ? false : m.nullable } : m)),
+      }
+    ));
+  }
+
+  function updateSheetNullable(sheetIdx: number, colIdx: number, value: boolean) {
+    setSheets((prev) => prev.map((s, si) =>
+      si !== sheetIdx ? s : {
+        ...s,
+        columnMappings: s.columnMappings.map((m, ci) => (ci === colIdx ? { ...m, nullable: value } : m)),
       }
     ));
   }
@@ -373,6 +386,7 @@ export default function FileImport({ connectionConfig, onImported, dialect = "po
                       <TableHeader>
                         <TableRow>
                           <TableHead className="text-xs w-10 text-center">PK</TableHead>
+                          <TableHead className="text-xs w-16 text-center">Nullable</TableHead>
                           <TableHead className="text-xs">Original</TableHead>
                           <TableHead className="text-xs">Column Name</TableHead>
                           <TableHead className="text-xs">Type</TableHead>
@@ -386,6 +400,13 @@ export default function FileImport({ connectionConfig, onImported, dialect = "po
                               <Checkbox
                                 checked={!!m.primaryKey}
                                 onCheckedChange={(v) => updateSheetPK(si, ci, !!v)}
+                              />
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <Checkbox
+                                checked={m.nullable !== false}
+                                disabled={!!m.primaryKey}
+                                onCheckedChange={(v) => updateSheetNullable(si, ci, !!v)}
                               />
                             </TableCell>
                             <TableCell className="text-xs font-mono">{m.originalName}</TableCell>
@@ -478,6 +499,16 @@ export default function FileImport({ connectionConfig, onImported, dialect = "po
   // ── Preview stage — single sheet / CSV ────────────────────────────────────
   return (
     <div className="space-y-4">
+      <div className="space-y-1">
+        <Label htmlFor="tableNamePreview">Target Table Name</Label>
+        <Input
+          id="tableNamePreview"
+          value={tableName}
+          onChange={(e) => { setTableName(e.target.value); setTableExists(false); }}
+          placeholder="my_table"
+          className="font-mono"
+        />
+      </div>
       <div className="flex items-center gap-2">
         <h3 className="font-semibold">Column Mappings</h3>
         <Badge variant="secondary">{columnMappings.length} columns</Badge>
@@ -487,6 +518,7 @@ export default function FileImport({ connectionConfig, onImported, dialect = "po
           <TableHeader>
             <TableRow>
               <TableHead className="w-10 text-center">PK</TableHead>
+              <TableHead className="w-20 text-center">Nullable</TableHead>
               <TableHead>Original Name</TableHead>
               <TableHead>Column Name</TableHead>
               <TableHead>Data Type</TableHead>
@@ -500,6 +532,13 @@ export default function FileImport({ connectionConfig, onImported, dialect = "po
                   <Checkbox
                     checked={!!m.primaryKey}
                     onCheckedChange={(v) => updateSinglePK(i, !!v)}
+                  />
+                </TableCell>
+                <TableCell className="text-center">
+                  <Checkbox
+                    checked={m.nullable !== false}
+                    disabled={!!m.primaryKey}
+                    onCheckedChange={(v) => updateSingleNullable(i, !!v)}
                   />
                 </TableCell>
                 <TableCell className="text-xs font-mono">{m.originalName}</TableCell>

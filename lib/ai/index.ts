@@ -51,6 +51,15 @@ export async function generateERD(
   return adapter.generateSQL(systemPrompt, `Generate a Mermaid erDiagram for this schema:\n\n${schemaToString(schema, dbSchema, dialect)}`);
 }
 
+/** Strip markdown code fences that AI models sometimes add despite instructions. */
+function cleanSQL(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^```(?:sql)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
+}
+
 export async function generateSQL(
   prompt: string,
   schema: Schema,
@@ -60,5 +69,6 @@ export async function generateSQL(
 ): Promise<string> {
   const adapter = createAdapter();
   const systemPrompt = buildSystemPrompt(schemaToString(schema, dbSchema, dialect), pageSize, dbSchema, dialect);
-  return adapter.generateSQL(systemPrompt, prompt);
+  const raw = await adapter.generateSQL(systemPrompt, prompt);
+  return cleanSQL(raw);
 }

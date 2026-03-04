@@ -28,6 +28,10 @@ export class MySQLClientAdapter implements DBClient {
     await this.client.beginTransaction();
   }
 
+  async commit(): Promise<void> {
+    await this.client.commit();
+  }
+
   async rollback(): Promise<void> {
     await this.client.rollback();
   }

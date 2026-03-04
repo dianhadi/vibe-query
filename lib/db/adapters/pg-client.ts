@@ -17,6 +17,10 @@ export class PgClientAdapter implements DBClient {
     await this.client.query("BEGIN");
   }
 
+  async commit(): Promise<void> {
+    await this.client.query("COMMIT");
+  }
+
   async rollback(): Promise<void> {
     await this.client.query("ROLLBACK");
   }

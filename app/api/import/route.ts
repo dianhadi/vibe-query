@@ -217,6 +217,7 @@ function inferMappings(headers: string[], rows: Record<string, string>[], fkTarg
       mappedName,
       dataType,
       primaryKey: isPK || undefined,
+      nullable: isPK ? false : true,
       references: inferFKReference(mappedName, fkTargetSet),
     };
   });
@@ -233,6 +234,7 @@ function buildImportSQL(
   const cols = columnMappings.map((c) => {
     const mappedType = mapImportType(c.dataType, dialect);
     const isAutoInc = dialect === "mysql" && (mappedType === "INT AUTO_INCREMENT" || mappedType === "BIGINT AUTO_INCREMENT");
+    const notNull = c.nullable === false || c.primaryKey;
 
     let def: string;
     if (isAutoInc) {
@@ -240,6 +242,7 @@ function buildImportSQL(
       def = `${q(c.mappedName)} ${mappedType} PRIMARY KEY`;
     } else {
       def = `${q(c.mappedName)} ${mappedType}`;
+      if (notNull && !c.primaryKey) def += " NOT NULL";
       if (c.primaryKey) def += " PRIMARY KEY";
     }
 
@@ -262,6 +265,12 @@ function buildImportSQL(
     const vals = columnMappings.map((c) => {
       const val = row[c.originalName] ?? "";
       if (val === "") return "NULL";
+      // MySQL BOOLEAN is TINYINT(1) — string 'true'/'false' is rejected; convert to 1/0
+      if (dialect === "mysql" && c.dataType.toUpperCase() === "BOOLEAN") {
+        const lower = val.toLowerCase();
+        if (["true", "t", "yes"].includes(lower)) return "1";
+        if (["false", "f", "no"].includes(lower)) return "0";
+      }
       return `'${val.replace(/'/g, "''")}'`;
     });
     return `(${vals.join(", ")})`;
@@ -350,12 +359,41 @@ export async function POST(req: NextRequest) {
 
           let totalRows = 0;
           await withClient(connectionConfig, async (client) => {
-            for (const cfg of sheetsConfig) {
-              const sheetData = sheets.find((s) => s.sheetName === cfg.sheetName);
-              if (!sheetData) continue;
-              const sqls = buildImportSQL(cfg.tableName, cfg.columnMappings, sheetData.data.rows, dialect);
-              for (const sql of sqls) await executeMutation(client, sql);
-              totalRows += sheetData.data.rows.length;
+            if (dialect === "postgresql") {
+              await client.beginTransaction();
+              try {
+                for (const cfg of sheetsConfig) {
+                  const sheetData = sheets.find((s) => s.sheetName === cfg.sheetName);
+                  if (!sheetData) continue;
+                  const sqls = buildImportSQL(cfg.tableName, cfg.columnMappings, sheetData.data.rows, dialect);
+                  for (const sql of sqls) await executeMutation(client, sql);
+                  totalRows += sheetData.data.rows.length;
+                }
+                await client.commit();
+              } catch (err) {
+                await client.rollback();
+                throw err;
+              }
+            } else {
+              // MySQL: DDL can't be rolled back — track created tables and DROP on failure
+              const createdTables: string[] = [];
+              try {
+                for (const cfg of sheetsConfig) {
+                  const sheetData = sheets.find((s) => s.sheetName === cfg.sheetName);
+                  if (!sheetData) continue;
+                  const sqls = buildImportSQL(cfg.tableName, cfg.columnMappings, sheetData.data.rows, dialect);
+                  for (let i = 0; i < sqls.length; i++) {
+                    await executeMutation(client, sqls[i]);
+                    if (i === 0) createdTables.push(cfg.tableName); // first SQL = CREATE TABLE
+                  }
+                  totalRows += sheetData.data.rows.length;
+                }
+              } catch (err) {
+                for (const t of [...createdTables].reverse()) {
+                  try { await client.query(`DROP TABLE IF EXISTS ${quoteIdent(t, dialect)}`); } catch { /* ignore */ }
+                }
+                throw err;
+              }
             }
           });
           return NextResponse.json({ result: { rowsInserted: totalRows, sheetsImported: sheetsConfig.length } });
@@ -402,7 +440,30 @@ export async function POST(req: NextRequest) {
       });
     } else {
       await withClient(connectionConfig, async (client) => {
-        for (const sql of sqls) await executeMutation(client, sql);
+        if (dialect === "postgresql") {
+          await client.beginTransaction();
+          try {
+            for (const sql of sqls) await executeMutation(client, sql);
+            await client.commit();
+          } catch (err) {
+            await client.rollback();
+            throw err;
+          }
+        } else {
+          // MySQL: DDL can't be rolled back — DROP the table on INSERT failure
+          let tableCreated = false;
+          try {
+            for (const sql of sqls) {
+              await executeMutation(client, sql);
+              if (!tableCreated) tableCreated = true; // first SQL = CREATE TABLE
+            }
+          } catch (err) {
+            if (tableCreated) {
+              try { await client.query(`DROP TABLE IF EXISTS ${quoteIdent(tableName, dialect)}`); } catch { /* ignore */ }
+            }
+            throw err;
+          }
+        }
       });
       return NextResponse.json({ result: { rowsInserted: parsed.rows.length } });
     }
