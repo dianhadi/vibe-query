@@ -94,6 +94,7 @@ export default function QueryResult({
     : baseSql;
 
   const safeRows = result.rows ?? [];
+  const safeColumns = result.columns ?? [];
   const clientTotalPages = Math.ceil(safeRows.length / CLIENT_PAGE_SIZE);
   const displayRows = paginated
     ? safeRows
@@ -159,9 +160,9 @@ export default function QueryResult({
 
   function exportCSV() {
     const csv = Papa.unparse({
-      fields: result.columns,
-      data: result.rows.map((row) =>
-        result.columns.map((col) => (row[col] === null || row[col] === undefined ? "" : row[col]))
+      fields: safeColumns,
+      data: safeRows.map((row) =>
+        safeColumns.map((col) => (row[col] === null || row[col] === undefined ? "" : row[col]))
       ),
     });
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
@@ -268,9 +269,9 @@ export default function QueryResult({
             ? `Rows ${rowStart}–${rowEnd}${result.hasMore ? "+" : ""}`
             : `${result.rowCount} row${result.rowCount !== 1 ? "s" : ""}`}
         </span>
-        {result.columns.length > 0 && (
+        {safeColumns.length > 0 && (
           <Badge variant="secondary" className="text-xs">
-            {result.columns.length} columns
+            {safeColumns.length} columns
           </Badge>
         )}
         {sortCol && (
@@ -278,7 +279,7 @@ export default function QueryResult({
             sorted by {sortCol} {sortDir === "asc" ? "↑" : "↓"}
           </Badge>
         )}
-        {result.rows.length > 0 && (
+        {safeRows.length > 0 && (
           <Button
             variant="outline"
             size="sm"
@@ -299,7 +300,7 @@ export default function QueryResult({
             <Table>
               <TableHeader>
                 <TableRow>
-                  {result.columns.map((col) => (
+                  {safeColumns.map((col) => (
                     <TableHead
                       key={col}
                       className="whitespace-nowrap text-xs cursor-pointer select-none hover:bg-muted/60 transition-colors"
@@ -314,7 +315,7 @@ export default function QueryResult({
               <TableBody>
                 {displayRows.map((row, i) => (
                   <TableRow key={i} className={pageLoading ? "opacity-50" : ""}>
-                    {result.columns.map((col) => (
+                    {safeColumns.map((col) => (
                       <TableCell key={col} className="text-xs font-mono whitespace-nowrap max-w-xs truncate">
                         {row[col] === null || row[col] === undefined ? (
                           <span className="text-muted-foreground italic">null</span>
