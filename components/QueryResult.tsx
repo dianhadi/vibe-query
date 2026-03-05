@@ -93,10 +93,11 @@ export default function QueryResult({
     ? `${baseSql} LIMIT ${pageSize} OFFSET ${page * pageSize}`
     : baseSql;
 
-  const clientTotalPages = Math.ceil(result.rows.length / CLIENT_PAGE_SIZE);
+  const safeRows = result.rows ?? [];
+  const clientTotalPages = Math.ceil(safeRows.length / CLIENT_PAGE_SIZE);
   const displayRows = paginated
-    ? result.rows
-    : result.rows.slice(clientPage * CLIENT_PAGE_SIZE, (clientPage + 1) * CLIENT_PAGE_SIZE);
+    ? safeRows
+    : safeRows.slice(clientPage * CLIENT_PAGE_SIZE, (clientPage + 1) * CLIENT_PAGE_SIZE);
 
   const rowStart = paginated ? page * pageSize + 1 : clientPage * CLIENT_PAGE_SIZE + 1;
   const rowEnd = rowStart + displayRows.length - 1;

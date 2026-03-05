@@ -63,7 +63,7 @@ export async function executeSelect(
   const result = await client.query(sql);
   return {
     columns: result.fields.map((f) => f.name),
-    rows: result.rows,
+    rows: result.rows ?? [],
     rowCount: result.rowCount,
   };
 }
