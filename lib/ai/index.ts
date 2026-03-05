@@ -7,9 +7,36 @@ import { AnthropicAdapter } from "./adapters/anthropic";
 import { OpenAIAdapter } from "./adapters/openai";
 import { OllamaAdapter } from "./adapters/ollama";
 import { GeminiAdapter } from "./adapters/gemini";
+import { getActiveProvider } from "./provider-store";
+
+const DEFAULT_MODELS: Record<string, string> = {
+  anthropic: "claude-sonnet-4-6",
+  openai: "gpt-4o",
+  gemini: "gemini-2.0-flash",
+  ollama: "llama3.2",
+};
+
+function truncatePrompt(text: string, wordLimit = 8): string {
+  const words = text.trim().split(/\s+/);
+  if (words.length <= wordLimit) return text.trim();
+  return words.slice(0, wordLimit).join(" ") + " ...";
+}
+
+function logAICall(feature: string, userPrompt: string) {
+  const provider = getActiveProvider();
+  const model = process.env.AI_MODEL ?? DEFAULT_MODELS[provider] ?? provider;
+  console.log(JSON.stringify({
+    time: new Date().toISOString(),
+    level: "info",
+    feature,
+    provider,
+    model,
+    prompt: truncatePrompt(userPrompt),
+  }));
+}
 
 function createAdapter(): AIAdapter {
-  const provider = (process.env.AI_PROVIDER ?? "anthropic").toLowerCase();
+  const provider = getActiveProvider().toLowerCase();
 
   switch (provider) {
     case "anthropic": {
@@ -44,6 +71,7 @@ export async function analyzeQueryPlan(
   const systemPrompt = buildAnalyzeSystemPrompt(dialect);
   const explainLabel = dialect === "mysql" ? "EXPLAIN" : "EXPLAIN ANALYZE";
   const userPrompt = `SQL Query:\n\`\`\`sql\n${sql}\n\`\`\`\n\n${explainLabel} output:\n\`\`\`\n${explainText}\n\`\`\``;
+  logAICall("analyzeQueryPlan", sql);
   return adapter.generateSQL(systemPrompt, userPrompt);
 }
 
@@ -54,7 +82,9 @@ export async function generateERD(
 ): Promise<string> {
   const adapter = createAdapter();
   const systemPrompt = buildERDSystemPrompt(dialect);
-  return adapter.generateSQL(systemPrompt, `Generate a Mermaid erDiagram for this schema:\n\n${schemaToString(schema, dbSchema, dialect)}`);
+  const userPrompt = `Generate a Mermaid erDiagram for this schema:\n\n${schemaToString(schema, dbSchema, dialect)}`;
+  logAICall("generateERD", `schema=${dbSchema}`);
+  return adapter.generateSQL(systemPrompt, userPrompt);
 }
 
 /** Strip markdown code fences that AI models sometimes add despite instructions. */
@@ -75,6 +105,7 @@ export async function generateSQL(
 ): Promise<string> {
   const adapter = createAdapter();
   const systemPrompt = buildSystemPrompt(schemaToString(schema, dbSchema, dialect), pageSize, dbSchema, dialect);
+  logAICall("generateSQL", prompt);
   const raw = await adapter.generateSQL(systemPrompt, prompt);
   return cleanSQL(raw);
 }

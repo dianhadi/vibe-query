@@ -27,7 +27,9 @@ import {
   ArrowUp,
   ArrowDown,
   ArrowUpDown,
+  FileDown,
 } from "lucide-react";
+import Papa from "papaparse";
 import {
   Select,
   SelectContent,
@@ -154,6 +156,22 @@ export default function QueryResult({
     }
   }
 
+  function exportCSV() {
+    const csv = Papa.unparse({
+      fields: result.columns,
+      data: result.rows.map((row) =>
+        result.columns.map((col) => (row[col] === null || row[col] === undefined ? "" : row[col]))
+      ),
+    });
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `query-export-${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="space-y-3">
       {/* SQL block */}
@@ -258,6 +276,18 @@ export default function QueryResult({
           <Badge variant="outline" className="text-xs">
             sorted by {sortCol} {sortDir === "asc" ? "↑" : "↓"}
           </Badge>
+        )}
+        {result.rows.length > 0 && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="ml-auto h-7 px-2 text-xs gap-1"
+            onClick={exportCSV}
+            title="Export to CSV"
+          >
+            <FileDown className="h-3.5 w-3.5" />
+            Export CSV
+          </Button>
         )}
       </div>
 

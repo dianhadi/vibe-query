@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   ConnectionConfig, Schema, QueryHistoryItem, QueryType,
   QueryResult as QueryResultType, PageSize, DEFAULT_PAGE_SIZE,
@@ -15,6 +15,7 @@ import QueryHistory from "@/components/QueryHistory";
 import FileImport from "@/components/FileImport";
 import PaginationConfirm from "@/components/PaginationConfirm";
 import ERDViewer from "@/components/ERDViewer";
+import AISettingsDialog from "@/components/AISettingsDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -32,9 +33,13 @@ type AppState =
   | { kind: "mutation_done"; sql: string; queryType: QueryType; rowsAffected: number }
   | { kind: "error"; message: string };
 
-const SESSION_KEY  = "vibeql_session";
-const HISTORY_KEY  = "vibeql_history";
-const ERD_KEY      = "vibeql_erd";
+const SESSION_KEY      = "vibeql_session";
+const HISTORY_KEY      = "vibeql_history";
+const ERD_KEY          = "vibeql_erd";
+const SIDEBAR_WIDTH_KEY = "vibeql_sidebar_width";
+const SIDEBAR_MIN      = 160;
+const SIDEBAR_MAX      = 480;
+const SIDEBAR_DEFAULT  = 224;
 
 function saveSession(
   config: ConnectionConfig,
@@ -56,6 +61,8 @@ function clearSession() {
 }
 
 export default function Home() {
+  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT);
+  const sidebarWidthRef = useRef(SIDEBAR_DEFAULT);
   const [initializing, setInitializing] = useState(true);
   const [connected, setConnected] = useState(false);
   const [connectionConfig, setConnectionConfig] = useState<ConnectionConfig | null>(null);
@@ -86,6 +93,13 @@ export default function Home() {
 
       const erd = sessionStorage.getItem(ERD_KEY);
       if (erd) setErdMermaid(erd);
+
+      const savedWidth = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+      if (savedWidth) {
+        const w = Math.min(Math.max(Number(savedWidth), SIDEBAR_MIN), SIDEBAR_MAX);
+        setSidebarWidth(w);
+        sidebarWidthRef.current = w;
+      }
     } catch { /* corrupted — start fresh */ }
     setInitializing(false);
   }, []);
@@ -404,6 +418,27 @@ export default function Home() {
     }
   }
 
+  function startResize(e: React.MouseEvent) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = sidebarWidthRef.current;
+
+    function onMouseMove(e: MouseEvent) {
+      const w = Math.min(Math.max(startWidth + e.clientX - startX, SIDEBAR_MIN), SIDEBAR_MAX);
+      sidebarWidthRef.current = w;
+      setSidebarWidth(w);
+    }
+
+    function onMouseUp() {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+      try { localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidthRef.current)); } catch { /* ignore */ }
+    }
+
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  }
+
   if (initializing) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-background">
@@ -421,24 +456,36 @@ export default function Home() {
       <Toaster />
 
       {/* Left sidebar: schema */}
-      <aside className="w-56 border-r flex flex-col shrink-0 bg-muted/40">
+      <aside
+        style={{ width: sidebarWidth }}
+        className="relative border-r flex flex-col shrink-0 bg-muted/40"
+      >
         <div className="px-3 py-3 border-b flex items-center justify-between">
           <Image src="/vibeQL-logo.svg" alt="vibeQL" width={88} height={28} />
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 w-6 p-0 text-muted-foreground"
-            onClick={() => { clearSession(); resetState(); setConnected(false); setSchema(null); setConnectionConfig(null); }}
-            title="Disconnect"
-          >
-            <LogOut className="h-3.5 w-3.5" />
-          </Button>
+          <div className="flex items-center gap-0.5">
+            <AISettingsDialog />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0 text-muted-foreground"
+              onClick={() => { clearSession(); resetState(); setConnected(false); setSchema(null); setConnectionConfig(null); }}
+              title="Disconnect"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+            </Button>
+          </div>
         </div>
         <SchemaExplorer
           schema={schema}
           dbSchemas={dbSchemas}
           currentDbSchema={currentDbSchema}
           onDbSchemaChange={handleDbSchemaChange}
+        />
+        {/* Drag handle */}
+        <div
+          onMouseDown={startResize}
+          className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/40 transition-colors"
+          title="Drag to resize"
         />
       </aside>
 

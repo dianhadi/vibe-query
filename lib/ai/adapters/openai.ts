@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { AIAdapter } from "./types";
+import { normalizeAIError } from "../errors";
 
 // Works for OpenAI and any OpenAI-compatible API (Groq, OpenRouter, LM Studio, etc.)
 export class OpenAIAdapter implements AIAdapter {
@@ -12,18 +13,22 @@ export class OpenAIAdapter implements AIAdapter {
   }
 
   async generateSQL(systemPrompt: string, userPrompt: string): Promise<string> {
-    const response = await this.client.chat.completions.create({
-      model: this.model,
-      max_tokens: 1024,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-    });
+    try {
+      const response = await this.client.chat.completions.create({
+        model: this.model,
+        max_tokens: 1024,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      });
 
-    const text = response.choices[0]?.message?.content;
-    if (!text) throw new Error("No text response from OpenAI");
+      const text = response.choices[0]?.message?.content;
+      if (!text) throw new Error("No text response from OpenAI");
 
-    return text.trim();
+      return text.trim();
+    } catch (err) {
+      throw normalizeAIError(err, "OpenAI");
+    }
   }
 }

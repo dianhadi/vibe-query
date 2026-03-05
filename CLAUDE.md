@@ -1,22 +1,22 @@
 # vibeQL
 
-A web app that lets users query their PostgreSQL database using natural language prompts instead of writing SQL manually. Powered by pluggable AI (Anthropic, OpenAI, Ollama, or any OpenAI-compatible API), built with Next.js (fullstack monorepo) and TypeScript.
+A web app that lets users query their PostgreSQL or MySQL database using natural language prompts instead of writing SQL manually. Powered by pluggable AI (Anthropic, OpenAI, Gemini, Ollama, or any OpenAI-compatible API), built with Next.js (fullstack monorepo) and TypeScript.
 
 ---
 
 ## Project Vision
 
-Users connect to a PostgreSQL database, describe what they want in plain language, and vibeQL generates and executes the SQL for them. For mutating operations (INSERT/UPDATE/DELETE), results are previewed first and require explicit confirmation before committing.
+Users connect to a PostgreSQL or MySQL database, describe what they want in plain language, and vibeQL generates and executes the SQL for them. For mutating operations (INSERT/UPDATE/DELETE), results are previewed first and require explicit confirmation before committing.
 
 ---
 
 ## Tech Stack
 
 - **Frontend & Backend**: Next.js (App Router) + TypeScript — monorepo, fullstack
-- **AI**: Pluggable adapter pattern — Anthropic (`claude-sonnet-4-6`), OpenAI, Ollama, or any OpenAI-compatible API
-- **Database**: PostgreSQL (primary), architected to support other adapters later
-- **DB Client**: `pg` (node-postgres)
-- **File Parsing**: `xlsx` for Excel, `papaparse` for CSV
+- **AI**: Pluggable adapter pattern — Anthropic (`claude-sonnet-4-6`), OpenAI (`gpt-4o`), Google Gemini (`gemini-2.0-flash`), Ollama, or any OpenAI-compatible API
+- **Database**: PostgreSQL + MySQL, architected via DB adapter pattern
+- **DB Client**: `pg` (node-postgres), `mysql2`
+- **File Parsing**: `xlsx` for Excel, `papaparse` for CSV (also used for CSV export)
 - **Diagram**: `mermaid` for ERD rendering (client-side dynamic import)
 - **Markdown**: `react-markdown` for AI analysis output
 - **UI**: Tailwind CSS v4 + shadcn/ui
@@ -99,6 +99,21 @@ Users connect to a PostgreSQL database, describe what they want in plain languag
 - Rendered with `react-markdown` in a panel below the SQL box
 - Analysis cleared when a new query runs
 
+### 10. CSV Export
+- **Export CSV** button appears in the query result metadata bar when rows are present
+- Uses `papaparse` (`Papa.unparse`) to serialize columns + rows to CSV
+- Triggers a browser download as `query-export-{timestamp}.csv`
+- `null`/`undefined` values are exported as empty strings
+- Exports all rows currently loaded in state (current page for paginated queries)
+
+### 11. AI Provider Switcher
+- ⚙️ icon in the sidebar header opens the **AI Provider** dialog
+- Lists all four providers with availability status (green dot = configured, grey = missing env var)
+- Each card shows the required env var name when not configured
+- User selects a provider and clicks **Set Provider** to apply — dialog closes on success
+- Active provider is highlighted with an **"active"** badge
+- Provider is stored in `globalThis.__vibeql_ai_provider` — persists across all route handlers in the same process, resets on server restart (falls back to `AI_PROVIDER` env var)
+
 ---
 
 ## Project Structure
@@ -116,37 +131,45 @@ vibe-query/
 │       ├── import/route.ts       # File import → table
 │       ├── schema/route.ts       # Switch PostgreSQL schema (lightweight)
 │       ├── erd/route.ts          # Generate Mermaid ERD from schema via AI
-│       └── analyze/route.ts      # EXPLAIN ANALYZE + AI performance analysis
+│       ├── analyze/route.ts      # EXPLAIN ANALYZE + AI performance analysis
+│       └── ai-settings/route.ts  # GET/POST active AI provider
 ├── components/
 │   ├── ConnectionForm.tsx        # DB connection form with vibeQL logo
 │   ├── PromptInput.tsx
-│   ├── QueryResult.tsx           # SQL display + sortable table + analyzer panel
+│   ├── QueryResult.tsx           # SQL display + sortable table + analyzer panel + CSV export
 │   ├── MutationConfirm.tsx       # Dry-run preview + commit CTA
 │   ├── PaginationConfirm.tsx     # Prompt user before fetching unlimited rows
 │   ├── ERDViewer.tsx             # Mermaid ERD renderer (controlled component)
 │   ├── FileImport.tsx
 │   ├── SchemaExplorer.tsx        # Sidebar with schema dropdown + tables/columns
 │   ├── QueryHistory.tsx
+│   ├── AISettingsDialog.tsx      # AI provider switcher dialog (sidebar header)
 │   └── ui/                       # shadcn/ui components
 ├── lib/
 │   ├── db/
-│   │   ├── client.ts             # pg pool management + withClient helper
+│   │   ├── client.ts             # pg/mysql2 pool management + withClient helper
 │   │   ├── introspect.ts         # Schema introspection (multi-schema, listSchemas)
 │   │   ├── execute.ts            # Query helpers: paginated, mutations, applyOrderBy
-│   │   └── adapters/types.ts     # DBAdapter interface (future: mysql, sqlite)
+│   │   └── adapters/
+│   │       ├── types.ts          # DBClient interface
+│   │       ├── pg-client.ts      # PostgreSQL adapter
+│   │       └── mysql-client.ts   # MySQL adapter
 │   ├── ai/
-│   │   ├── index.ts              # Factory (AI_PROVIDER env) + generateSQL/ERD/analyze
+│   │   ├── index.ts              # Provider factory + generateSQL/ERD/analyzeQueryPlan + JSON logging
 │   │   ├── prompts.ts            # buildSystemPrompt / buildERDSystemPrompt / buildAnalyzeSystemPrompt
+│   │   ├── provider-store.ts     # globalThis singleton for runtime provider switching
+│   │   ├── errors.ts             # normalizeAIError — maps HTTP status codes to user-friendly messages
 │   │   └── adapters/
 │   │       ├── types.ts          # AIAdapter interface: generateSQL(system, user)
 │   │       ├── anthropic.ts      # Anthropic SDK + prompt caching (cache_control)
 │   │       ├── openai.ts         # OpenAI SDK (supports baseURL override)
-│   │       └── ollama.ts         # Ollama via fetch to /v1/chat/completions
+│   │       ├── ollama.ts         # Ollama via fetch to /v1/chat/completions
+│   │       └── gemini.ts         # Google Gemini SDK
 │   └── parsers/
 │       ├── excel.ts              # xlsx parsing
 │       └── csv.ts                # papaparse wrapper
 ├── types/
-│   └── index.ts                  # Shared types: QueryResult, Schema, ColumnMapping (with primaryKey, references), PageSize, etc.
+│   └── index.ts                  # Shared types: QueryResult, Schema, ColumnMapping, PageSize, etc.
 ├── public/
 │   └── vibeQL-logo.svg           # Brand logo (indigo gradient)
 ├── .env.local                    # Local env vars (gitignored)
@@ -169,9 +192,9 @@ vibe-query/
 - Returns: `{ schema }`
 
 ### `POST /api/generate`
-- Body: `{ prompt, schema, pageSize?, dbSchema? }`
+- Body: `{ prompt, schema, pageSize?, dbSchema?, dialect? }`
 - Calls AI with system prompt (schema + pagination rule + schema restriction)
-- Returns: `{ sql }`
+- Returns: `{ sql, queryType }`
 
 ### `POST /api/query`
 - Body: `{ sql, connectionConfig, page?, pageSize? }`
@@ -193,14 +216,23 @@ vibe-query/
 - Returns commit: `{ result: { rowsInserted, sheetsImported? } }`
 
 ### `POST /api/erd`
-- Body: `{ schema, dbSchema? }`
+- Body: `{ schema, dbSchema?, dialect? }`
 - Calls AI with `buildERDSystemPrompt()`, returns raw Mermaid `erDiagram` string
 - Returns: `{ mermaid }`
 
 ### `POST /api/analyze`
 - Body: `{ sql, connectionConfig }`
-- Runs `EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)` then sends output to AI
+- Runs `EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)` (PostgreSQL) or `EXPLAIN FORMAT=TREE` (MySQL) then sends output to AI
 - Returns: `{ analysis }` (markdown string)
+
+### `GET /api/ai-settings`
+- Returns all available providers with configuration status and the currently active provider
+- Returns: `{ providers: ProviderInfo[], current: string }`
+
+### `POST /api/ai-settings`
+- Body: `{ provider: string }`
+- Validates provider is configured (required env var is set), then sets it as active
+- Returns: `{ provider }` or `{ error }`
 
 ---
 
@@ -215,18 +247,43 @@ interface AIAdapter {
 All AI features (SQL generation, ERD, query analysis) use this single method with different system/user prompts.
 
 ### Provider Factory (`lib/ai/index.ts`)
-Reads `AI_PROVIDER` env var and instantiates the correct adapter. Exported functions:
-- `generateSQL(prompt, schema, pageSize?, dbSchema?)` — SQL generation
-- `generateERD(schema, dbSchema?)` — Mermaid ERD
-- `analyzeQueryPlan(sql, explainText)` — performance analysis
+Reads the active provider from `provider-store` (runtime override via UI) falling back to `AI_PROVIDER` env var. Exported functions:
+- `generateSQL(prompt, schema, pageSize?, dbSchema?, dialect?)` — SQL generation
+- `generateERD(schema, dbSchema?, dialect?)` — Mermaid ERD
+- `analyzeQueryPlan(sql, explainText, dialect?)` — performance analysis
+
+### Runtime Provider Switching
+`lib/ai/provider-store.ts` stores the active provider in `globalThis.__vibeql_ai_provider`, which is shared across all API route module instances in the same Node.js process. This allows the UI to switch providers at runtime without a server restart. Resets to `AI_PROVIDER` env var default on server restart.
+
+### Error Handling (`lib/ai/errors.ts`)
+`normalizeAIError(err, provider)` is called in every adapter's catch block. Maps HTTP status codes to user-friendly messages:
+
+| Status | Message |
+|---|---|
+| 401 | Invalid API key |
+| 403 | Access denied |
+| 429 | Rate limit exceeded |
+| 500 | Internal server error |
+| 502 | Bad gateway |
+| 503 | Service unavailable |
+| 529 | Service overloaded |
+| no status | Connection failed / timeout |
+
+### Structured Logging
+Every AI call logs a JSON line to stdout (server-side):
+```json
+{"time":"2026-03-05T10:23:01.123Z","level":"info","feature":"generateSQL","provider":"anthropic","model":"claude-sonnet-4-6","prompt":"tampilkan 10 order terbaru ..."}
+```
+- `feature`: `generateSQL` | `generateERD` | `analyzeQueryPlan`
+- `prompt`: truncated to first 8 words — **no system prompt, no data rows are logged**
 
 ### Prompt Caching (Anthropic only)
 The Anthropic adapter sends the system prompt as a content block with `cache_control: { type: "ephemeral" }`. This caches the schema context for ~5 minutes, making repeated queries against the same schema ~90% cheaper on input tokens.
 
 ### System Prompts (`lib/ai/prompts.ts`)
-- `buildSystemPrompt(schemaText, pageSize?, dbSchema?)` — SQL generation; includes pagination rule and schema restriction
-- `buildERDSystemPrompt()` — Mermaid erDiagram rules; outputs only valid Mermaid, no fences
-- `buildAnalyzeSystemPrompt()` — EXPLAIN ANALYZE interpretation; structured markdown output with Summary / Issues / Index Recommendations / Other Suggestions sections
+- `buildSystemPrompt(schemaText, pageSize?, dbSchema?, dialect?)` — SQL generation; includes pagination rule and schema restriction
+- `buildERDSystemPrompt(dialect?)` — Mermaid erDiagram rules; outputs only valid Mermaid, no fences
+- `buildAnalyzeSystemPrompt(dialect?)` — EXPLAIN ANALYZE interpretation; structured markdown output with Summary / Issues / Index Recommendations / Other Suggestions sections
 
 ---
 
@@ -251,18 +308,22 @@ Both ERD (`erdMermaid`, `erdLoading`, `erdError`) and query analysis (`analysis`
 ### Sort state in page.tsx
 `sortCol` and `sortDir` live in `page.tsx`. On column header click, `applyOrderBy(baseSql, col, dir)` builds a new SQL string, then `runPaginatedSelect` or `runDirectSelect` re-fetches from page 0.
 
+### AI provider store uses globalThis
+Module-level `let` variables are not shared across Next.js API route module instances. `globalThis.__vibeql_ai_provider` is used instead to ensure the selected provider is visible to all route handlers in the same process.
+
 ---
 
 ## Environment Variables
 
 | Variable | Required | Description |
 |---|---|---|
-| `AI_PROVIDER` | No | `anthropic` (default), `openai`, or `ollama` |
-| `AI_MODEL` | No | Override the default model |
-| `ANTHROPIC_API_KEY` | If `AI_PROVIDER=anthropic` | Anthropic API key |
-| `OPENAI_API_KEY` | If `AI_PROVIDER=openai` | OpenAI (or compatible) API key |
+| `AI_PROVIDER` | No | `anthropic` (default), `openai`, `gemini`, or `ollama` |
+| `AI_MODEL` | No | Override the default model for the active provider |
+| `ANTHROPIC_API_KEY` | If using Anthropic | Anthropic API key |
+| `OPENAI_API_KEY` | If using OpenAI | OpenAI (or compatible) API key |
 | `OPENAI_BASE_URL` | No | Override base URL (Groq, OpenRouter, LM Studio, etc.) |
-| `OLLAMA_BASE_URL` | No | Ollama base URL (default: `http://localhost:11434`) |
+| `GEMINI_API_KEY` | If using Gemini | Google Gemini API key |
+| `OLLAMA_BASE_URL` | If using Ollama | Ollama base URL (e.g. `http://localhost:11434`) |
 
 Connection config is never stored server-side beyond the request lifecycle.
 
@@ -288,6 +349,7 @@ pnpm lint          # ESLint
 4. **Fast feedback** — results, analysis, and diagrams appear inline; no page navigation
 5. **Persistent state across tabs** — ERD and analysis results survive tab switches
 6. **Graceful errors** — DB errors, AI errors, and parse errors show human-readable messages
+7. **No data sent to AI** — only schema structure, SQL text, and EXPLAIN output are sent; row data never leaves the server
 
 ---
 
