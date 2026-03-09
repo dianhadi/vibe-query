@@ -4,14 +4,14 @@ import { executeSelect, executeSelectPaginated } from "@/lib/db/execute";
 import { ConnectionConfig } from "@/types";
 
 export async function POST(req: NextRequest) {
-  let body: { sql: string; connectionConfig: ConnectionConfig; page?: number; pageSize?: number };
+  let body: { sql: string; connectionConfig: ConnectionConfig; page?: number; pageSize?: number; dbSchema?: string };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const { sql, connectionConfig, page, pageSize } = body;
+  const { sql, connectionConfig, page, pageSize, dbSchema } = body;
   if (!sql || !connectionConfig) {
     return NextResponse.json({ error: "sql and connectionConfig are required" }, { status: 400 });
   }
@@ -20,9 +20,9 @@ export async function POST(req: NextRequest) {
     const result =
       page !== undefined && pageSize !== undefined
         ? await withClient(connectionConfig, (client) =>
-            executeSelectPaginated(client, sql, page, pageSize)
+            executeSelectPaginated(client, sql, page, pageSize), dbSchema
           )
-        : await withClient(connectionConfig, (client) => executeSelect(client, sql));
+        : await withClient(connectionConfig, (client) => executeSelect(client, sql), dbSchema);
 
     return NextResponse.json(result);
   } catch (err) {

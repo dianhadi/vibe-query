@@ -165,7 +165,7 @@ export default function Home() {
     const res = await fetch("/api/query", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sql: baseSql, connectionConfig, page, pageSize: size }),
+      body: JSON.stringify({ sql: baseSql, connectionConfig, page, pageSize: size, dbSchema: currentDbSchema }),
     });
     const data = await res.json();
     if (data.error) {
@@ -182,7 +182,7 @@ export default function Home() {
     const res = await fetch("/api/query", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sql, connectionConfig }),
+      body: JSON.stringify({ sql, connectionConfig, dbSchema: currentDbSchema }),
     });
     const data = await res.json();
     if (data.error) {
@@ -216,7 +216,7 @@ export default function Home() {
       const mRes = await fetch("/api/mutate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sql, connectionConfig, confirmed: false }),
+        body: JSON.stringify({ sql, connectionConfig, confirmed: false, dbSchema: currentDbSchema }),
       });
       const mData = await mRes.json();
 
@@ -286,7 +286,7 @@ export default function Home() {
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sql, connectionConfig }),
+        body: JSON.stringify({ sql, connectionConfig, dbSchema: currentDbSchema }),
       });
       const data = await res.json();
       if (data.error) {
@@ -320,7 +320,7 @@ export default function Home() {
       const res = await fetch("/api/mutate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sql, connectionConfig, confirmed: true }),
+        body: JSON.stringify({ sql, connectionConfig, confirmed: true, dbSchema: currentDbSchema }),
       });
       const data = await res.json();
       if (data.error) {
@@ -614,7 +614,7 @@ export default function Home() {
           </TabsContent>
 
           <TabsContent value="import" className="flex-1 overflow-auto p-4 mt-0">
-            <FileImport connectionConfig={connectionConfig} onImported={handleImported} dialect={connectionConfig.dialect} />
+            <FileImport connectionConfig={connectionConfig} onImported={handleImported} dialect={connectionConfig.dialect} dbSchema={currentDbSchema} />
           </TabsContent>
 
           <TabsContent value="erd" className="flex-1 overflow-auto p-4 mt-0 h-full">

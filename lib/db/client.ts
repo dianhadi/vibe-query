@@ -7,7 +7,8 @@ import { MySQLClientAdapter } from "./adapters/mysql-client";
 
 export async function withClient<T>(
   config: ConnectionConfig,
-  fn: (client: DBClient) => Promise<T>
+  fn: (client: DBClient) => Promise<T>,
+  dbSchema?: string
 ): Promise<T> {
   const dialect = config.dialect ?? "postgresql";
 
@@ -39,7 +40,11 @@ export async function withClient<T>(
     });
     const client = await pool.connect();
     try {
-      return await fn(new PgClientAdapter(client));
+      const adapter = new PgClientAdapter(client);
+      if (dbSchema && dbSchema !== "public") {
+        await adapter.query(`SET search_path TO "${dbSchema}"`);
+      }
+      return await fn(adapter);
     } finally {
       client.release();
       await pool.end();

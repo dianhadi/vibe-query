@@ -76,15 +76,16 @@ interface PreviewDBData {
 /** Single DB connection that fetches both table conflict info and FK-eligible columns. */
 async function fetchPreviewDBData(
   config: ConnectionConfig,
-  tables: { tableName: string; importColumns: string[] }[]
+  tables: { tableName: string; importColumns: string[] }[],
+  dbSchema?: string
 ): Promise<PreviewDBData> {
   const conflicts = new Map<string, TableConflict>(
     tables.map(({ tableName }) => [tableName, { exists: false, similarity: 0, suggestedName: tableName }])
   );
   const fkOptions: FKOption[] = [];
   const dialect: Dialect = config.dialect ?? "postgresql";
-  // For MySQL use config.database as schemaName; for pg use "public"
-  const schemaName = dialect === "mysql" ? config.database : "public";
+  // For MySQL use config.database as schemaName; for pg use active schema (default "public")
+  const schemaName = dialect === "mysql" ? config.database : (dbSchema ?? "public");
 
   try {
     await withClient(config, async (client) => {
@@ -296,6 +297,7 @@ export async function POST(req: NextRequest) {
   const file = formData.get("file") as File | null;
   const connectionConfigStr = formData.get("connectionConfig") as string | null;
   const confirmedStr = formData.get("confirmed") as string | null;
+  const dbSchema = (formData.get("dbSchema") as string | null) ?? undefined;
 
   if (!file || !connectionConfigStr) {
     return NextResponse.json({ error: "file and connectionConfig are required" }, { status: 400 });
@@ -328,7 +330,8 @@ export async function POST(req: NextRequest) {
           );
           const { conflicts, fkOptions } = await fetchPreviewDBData(
             connectionConfig,
-            sheets.map((_s, i) => ({ tableName: prelimNames[i], importColumns: [] }))
+            sheets.map((_s, i) => ({ tableName: prelimNames[i], importColumns: [] })),
+            dbSchema
           );
           const fkTargetSet = new Set(fkOptions.map((o) => `${o.table}.${o.column}`));
 
@@ -395,7 +398,7 @@ export async function POST(req: NextRequest) {
                 throw err;
               }
             }
-          });
+          }, dbSchema);
           return NextResponse.json({ result: { rowsInserted: totalRows, sheetsImported: sheetsConfig.length } });
         }
       }
@@ -417,7 +420,7 @@ export async function POST(req: NextRequest) {
 
     if (!confirmed) {
       const importColumns = columnMappings.map((m) => m.mappedName);
-      const { conflicts, fkOptions } = await fetchPreviewDBData(connectionConfig, [{ tableName, importColumns }]);
+      const { conflicts, fkOptions } = await fetchPreviewDBData(connectionConfig, [{ tableName, importColumns }], dbSchema);
       const fkTargetSet = new Set(fkOptions.map((o) => `${o.table}.${o.column}`));
       // Re-infer mappings now that we have FK targets (only when not user-supplied)
       const finalMappings: ColumnMapping[] = columnMappingsStr
@@ -464,7 +467,7 @@ export async function POST(req: NextRequest) {
             throw err;
           }
         }
-      });
+      }, dbSchema);
       return NextResponse.json({ result: { rowsInserted: parsed.rows.length } });
     }
   } catch (err) {

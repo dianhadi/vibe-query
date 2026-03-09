@@ -4,14 +4,14 @@ import { executeMutation, executeMutationPreview } from "@/lib/db/execute";
 import { ConnectionConfig } from "@/types";
 
 export async function POST(req: NextRequest) {
-  let body: { sql: string; connectionConfig: ConnectionConfig; confirmed: boolean };
+  let body: { sql: string; connectionConfig: ConnectionConfig; confirmed: boolean; dbSchema?: string };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const { sql, connectionConfig, confirmed } = body;
+  const { sql, connectionConfig, confirmed, dbSchema } = body;
   if (!sql || !connectionConfig) {
     return NextResponse.json({ error: "sql and connectionConfig are required" }, { status: 400 });
   }
@@ -19,12 +19,12 @@ export async function POST(req: NextRequest) {
   try {
     if (!confirmed) {
       const preview = await withClient(connectionConfig, (client) =>
-        executeMutationPreview(client, sql)
+        executeMutationPreview(client, sql), dbSchema
       );
       return NextResponse.json({ preview });
     } else {
       const result = await withClient(connectionConfig, (client) =>
-        executeMutation(client, sql)
+        executeMutation(client, sql), dbSchema
       );
       return NextResponse.json({ result });
     }
