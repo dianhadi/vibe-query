@@ -84,7 +84,7 @@ async function fetchPreviewDBData(
   );
   const fkOptions: FKOption[] = [];
   const dialect: Dialect = config.dialect ?? "postgresql";
-  // For MySQL use config.database as schemaName; for pg use active schema (default "public")
+  // For MySQL use config.database as schemaName; for pg use the selected schema (default "public")
   const schemaName = dialect === "mysql" ? config.database : (dbSchema ?? "public");
 
   try {
@@ -228,9 +228,15 @@ function buildImportSQL(
   tableName: string,
   columnMappings: ColumnMapping[],
   rows: Record<string, string>[],
-  dialect: Dialect = "postgresql"
+  dialect: Dialect = "postgresql",
+  schemaName?: string
 ): string[] {
   const q = (name: string) => quoteIdent(name, dialect);
+  // Qualify table name with schema when using a non-public PostgreSQL schema
+  const qualifyTable = (t: string) =>
+    dialect === "postgresql" && schemaName && schemaName !== "public"
+      ? `${q(schemaName)}.${q(t)}`
+      : q(t);
 
   const cols = columnMappings.map((c) => {
     const mappedType = mapImportType(c.dataType, dialect);
@@ -252,13 +258,13 @@ function buildImportSQL(
       if (dot > 0) {
         const refTable = c.references.slice(0, dot);
         const refCol = c.references.slice(dot + 1);
-        def += ` REFERENCES ${q(refTable)}(${q(refCol)})`;
+        def += ` REFERENCES ${qualifyTable(refTable)}(${q(refCol)})`;
       }
     }
     return def;
   }).join(", ");
 
-  const createSQL = `CREATE TABLE ${q(tableName)} (${cols});`;
+  const createSQL = `CREATE TABLE ${qualifyTable(tableName)} (${cols});`;
   if (rows.length === 0) return [createSQL];
 
   const colNames = columnMappings.map((c) => q(c.mappedName)).join(", ");
@@ -281,7 +287,7 @@ function buildImportSQL(
   const insertSQLs: string[] = [];
   for (let i = 0; i < valuePlaceholders.length; i += batchSize) {
     const batch = valuePlaceholders.slice(i, i + batchSize).join(",\n  ");
-    insertSQLs.push(`INSERT INTO ${q(tableName)} (${colNames}) VALUES\n  ${batch};`);
+    insertSQLs.push(`INSERT INTO ${qualifyTable(tableName)} (${colNames}) VALUES\n  ${batch};`);
   }
   return [createSQL, ...insertSQLs];
 }
@@ -297,7 +303,7 @@ export async function POST(req: NextRequest) {
   const file = formData.get("file") as File | null;
   const connectionConfigStr = formData.get("connectionConfig") as string | null;
   const confirmedStr = formData.get("confirmed") as string | null;
-  const dbSchema = (formData.get("dbSchema") as string | null) ?? undefined;
+  const dbSchema = (formData.get("dbSchema") as string | null) ?? "public";
 
   if (!file || !connectionConfigStr) {
     return NextResponse.json({ error: "file and connectionConfig are required" }, { status: 400 });
@@ -368,7 +374,7 @@ export async function POST(req: NextRequest) {
                 for (const cfg of sheetsConfig) {
                   const sheetData = sheets.find((s) => s.sheetName === cfg.sheetName);
                   if (!sheetData) continue;
-                  const sqls = buildImportSQL(cfg.tableName, cfg.columnMappings, sheetData.data.rows, dialect);
+                  const sqls = buildImportSQL(cfg.tableName, cfg.columnMappings, sheetData.data.rows, dialect, dbSchema);
                   for (const sql of sqls) await executeMutation(client, sql);
                   totalRows += sheetData.data.rows.length;
                 }
@@ -384,7 +390,7 @@ export async function POST(req: NextRequest) {
                 for (const cfg of sheetsConfig) {
                   const sheetData = sheets.find((s) => s.sheetName === cfg.sheetName);
                   if (!sheetData) continue;
-                  const sqls = buildImportSQL(cfg.tableName, cfg.columnMappings, sheetData.data.rows, dialect);
+                  const sqls = buildImportSQL(cfg.tableName, cfg.columnMappings, sheetData.data.rows, dialect, dbSchema);
                   for (let i = 0; i < sqls.length; i++) {
                     await executeMutation(client, sqls[i]);
                     if (i === 0) createdTables.push(cfg.tableName); // first SQL = CREATE TABLE
@@ -416,7 +422,7 @@ export async function POST(req: NextRequest) {
       ? JSON.parse(columnMappingsStr)
       : inferMappings(parsed.headers, parsed.rows, new Set(), tableName);
 
-    const sqls = buildImportSQL(tableName, columnMappings, parsed.rows, dialect);
+    const sqls = buildImportSQL(tableName, columnMappings, parsed.rows, dialect, dbSchema);
 
     if (!confirmed) {
       const importColumns = columnMappings.map((m) => m.mappedName);
@@ -428,7 +434,7 @@ export async function POST(req: NextRequest) {
         : inferMappings(parsed.headers, parsed.rows, fkTargetSet, tableName);
       const c = conflicts.get(tableName);
       return NextResponse.json({
-        sql: buildImportSQL(tableName, finalMappings, parsed.rows, dialect).join("\n"),
+        sql: buildImportSQL(tableName, finalMappings, parsed.rows, dialect, dbSchema).join("\n"),
         isMultiSheet: false,
         fkOptions,
         preview: {

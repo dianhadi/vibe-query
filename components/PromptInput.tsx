@@ -8,11 +8,12 @@ import { Play } from "lucide-react";
 interface PromptInputProps {
   onSubmit: (prompt: string) => void;
   loading: boolean;
+  loadingLabel?: string;
   value?: string;
   onChange?: (value: string) => void;
 }
 
-export default function PromptInput({ onSubmit, loading, value, onChange }: PromptInputProps) {
+export default function PromptInput({ onSubmit, loading, loadingLabel = "Generating...", value, onChange }: PromptInputProps) {
   const [localPrompt, setLocalPrompt] = useState("");
   const prompt = value !== undefined ? value : localPrompt;
 
@@ -45,7 +46,7 @@ export default function PromptInput({ onSubmit, loading, value, onChange }: Prom
       />
       <Button type="submit" disabled={loading || !prompt.trim()} className="self-end px-5 gap-2">
         <Play className="h-4 w-4" />
-        {loading ? "Generating..." : "Run"}
+        {loading ? loadingLabel : "Run"}
       </Button>
     </form>
   );

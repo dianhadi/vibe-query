@@ -71,7 +71,7 @@ interface SheetConfig {
   suggestedName: string;
 }
 
-export default function FileImport({ connectionConfig, onImported, dialect = "postgresql", dbSchema }: FileImportProps) {
+export default function FileImport({ connectionConfig, onImported, dialect = "postgresql", dbSchema = "public" }: FileImportProps) {
   const DATA_TYPES = dialect === "mysql" ? MYSQL_DATA_TYPES : PG_DATA_TYPES;
   const [file, setFile] = useState<File | null>(null);
   const [stage, setStage] = useState<"upload" | "preview" | "done">("upload");
@@ -135,8 +135,8 @@ export default function FileImport({ connectionConfig, onImported, dialect = "po
     form.append("file", file);
     form.append("tableName", tableName);
     form.append("connectionConfig", JSON.stringify(connectionConfig));
+    form.append("dbSchema", dbSchema);
     form.append("confirmed", "false");
-    if (dbSchema) form.append("dbSchema", dbSchema);
 
     try {
       const res = await fetch("/api/import", { method: "POST", body: form });
@@ -195,8 +195,8 @@ export default function FileImport({ connectionConfig, onImported, dialect = "po
     const form = new FormData();
     form.append("file", file);
     form.append("connectionConfig", JSON.stringify(connectionConfig));
+    form.append("dbSchema", dbSchema);
     form.append("confirmed", "true");
-    if (dbSchema) form.append("dbSchema", dbSchema);
 
     if (isMultiSheet) {
       form.append("sheetsConfig", JSON.stringify(

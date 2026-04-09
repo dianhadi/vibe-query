@@ -27,6 +27,7 @@ import { LogOut, Terminal, Upload, GitBranch, Clock } from "lucide-react";
 type AppState =
   | { kind: "idle" }
   | { kind: "loading" }
+  | { kind: "executing" }
   | { kind: "pagination_confirm"; baseSql: string }
   | { kind: "select_result"; baseSql: string; result: QueryResultType; page: number; pageSize: number; paginated: boolean; pageLoading: boolean; analysis?: string; analyzeLoading?: boolean; analyzeError?: string }
   | { kind: "mutation_preview"; sql: string; queryType: QueryType; preview: { rowsAffected: number; previewRows?: Record<string, unknown>[] } | null; previewLoading: boolean; commitLoading: boolean; error?: string }
@@ -252,7 +253,7 @@ export default function Home() {
 
   async function handleRerun(sql: string) {
     if (!connectionConfig) return;
-    setAppState({ kind: "loading" });
+    setAppState({ kind: "executing" });
     try {
       await processSQL(sql, currentPrompt);
     } catch (err) {
@@ -261,14 +262,14 @@ export default function Home() {
   }
 
   async function handlePaginationConfirm(baseSql: string) {
-    setAppState({ kind: "loading" });
+    setAppState({ kind: "executing" });
     await runPaginatedSelect(baseSql, 0, pageSize, currentPrompt);
   }
 
   async function handlePageSizeChange(newSize: PageSize) {
     if (appState.kind !== "select_result") return;
     setPageSize(newSize);
-    setAppState({ kind: "loading" });
+    setAppState({ kind: "executing" });
     await runPaginatedSelect(appState.baseSql, 0, newSize, currentPrompt);
   }
 
@@ -343,7 +344,7 @@ export default function Home() {
     setCurrentPrompt(item.prompt);
     setActiveTab("query");
     if (item.queryType === "SELECT") {
-      setAppState({ kind: "loading" });
+      setAppState({ kind: "executing" });
       try {
         await processSQL(item.sql, item.prompt);
       } catch (err) {
@@ -533,7 +534,8 @@ export default function Home() {
           <TabsContent value="query" className="flex-1 overflow-auto p-4 space-y-4 mt-0">
             <PromptInput
               onSubmit={handlePrompt}
-              loading={appState.kind === "loading"}
+              loading={appState.kind === "loading" || appState.kind === "executing"}
+              loadingLabel={appState.kind === "executing" ? "Running..." : "Generating..."}
               value={currentPrompt}
               onChange={setCurrentPrompt}
             />
@@ -548,6 +550,10 @@ export default function Home() {
 
             {appState.kind === "loading" && (
               <p className="text-sm text-muted-foreground animate-pulse">Generating SQL...</p>
+            )}
+
+            {appState.kind === "executing" && (
+              <p className="text-sm text-muted-foreground animate-pulse">Running query...</p>
             )}
 
             {appState.kind === "error" && (
