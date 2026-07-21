@@ -1,42 +1,16 @@
 import { DBClient } from "@/lib/db/client-types";
 import { Dialect, quoteIdent } from "@/lib/db/dialect";
 import { ColumnInfo, Schema } from "@/types";
+import {
+  ALLOWED_COLUMN_PATTERNS,
+  BLOCKED_COLUMN_PATTERNS,
+  CATEGORICAL_TYPES,
+  isConfiguredAllowedCategoricalColumn,
+  isConfiguredSensitiveColumn,
+} from "@/lib/agent/policy";
 
 const MAX_DISTINCT_VALUES = 25;
 const MAX_VALUE_LENGTH = 40;
-
-const BLOCKED_COLUMN_PATTERNS = [
-  /(^|_)name$/i,
-  /full_?name/i,
-  /first_?name/i,
-  /last_?name/i,
-  /(^|_)nama($|_)/i,
-  /email|mail/i,
-  /phone|mobile|telp|whatsapp|wa_number/i,
-  /address|alamat|street|latitude|longitude|(^|_)lat$|(^|_)lng$/i,
-  /nik|ktp|ssn|passport|npwp|tax_?id/i,
-  /password|token|secret|api_?key/i,
-  /note|notes|comment|description|message|bio/i,
-];
-
-const ALLOWED_COLUMN_PATTERNS = [
-  /gender|sex|jenis_?kelamin|(^|_)jk$/i,
-  /status|state|stage|phase/i,
-  /^is_|^has_|_flag$/i,
-  /type|category|kategori|role/i,
-  /priority|severity|level|tier|rank/i,
-  /channel|source|origin|platform/i,
-  /payment_?status|order_?status|shipment_?status|delivery_?status|approval_?status|review_?status/i,
-  /mode|method|kind|class|segment|group/i,
-];
-
-const CATEGORICAL_TYPES = [
-  "boolean",
-  "bool",
-  "enum",
-  "tinyint",
-  "smallint",
-];
 
 const SENSITIVE_VALUE_PATTERNS = [
   /@/,
@@ -63,13 +37,14 @@ export function canInspectDistinct(schema: Schema, table: string, column: string
   const col = findColumn(schema, table, column);
   if (!col) return { allowed: false, reason: "Table or column is not in the current schema." };
 
-  if (BLOCKED_COLUMN_PATTERNS.some((pattern) => pattern.test(column))) {
+  if (isConfiguredSensitiveColumn(table, column) || BLOCKED_COLUMN_PATTERNS.some((pattern) => pattern.test(column))) {
     return { allowed: false, reason: "Column name looks sensitive or free-text." };
   }
 
+  const allowedByConfig = isConfiguredAllowedCategoricalColumn(table, column);
   const allowedByName = ALLOWED_COLUMN_PATTERNS.some((pattern) => pattern.test(column));
   const allowedByType = CATEGORICAL_TYPES.some((type) => col.type.toLowerCase().includes(type));
-  if (!allowedByName && !allowedByType) {
+  if (!allowedByConfig && !allowedByName && !allowedByType) {
     return { allowed: false, reason: "Column is not classified as a safe categorical field." };
   }
 

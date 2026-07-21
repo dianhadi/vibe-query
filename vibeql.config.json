@@ -1,0 +1,10 @@
+{
+  "agentPolicy": {
+    "allowedCategoricalColumns": [
+      "pegawai.jenis_kelamin"
+    ],
+    "sensitiveColumns": [
+      "pegawai.nama"
+    ]
+  }
+}

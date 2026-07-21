@@ -65,6 +65,7 @@ ${schemaText}`;
 
 export function buildAgentPlanningSystemPrompt(
   schemaText: string,
+  schemaProfileText: string,
   pageSize?: number,
   dbSchema = "public",
   dialect: Dialect = "postgresql"
@@ -92,6 +93,9 @@ Do not request distinct values for names, emails, phone numbers, addresses, IDs,
 For filters on categorical columns expressed in natural language, you MUST inspect_distinct on the matching safe categorical column before final_sql unless tool observations already include that column's values or the user gave an exact stored code.
 Do not assume natural language labels are stored literally; common database values may be codes, abbreviations, numbers, English labels, localized labels, or booleans.
 This applies broadly, for example active/inactive status, paid/unpaid payment state, approved/rejected review state, high/low priority, online/offline channel, internal/external type, and gender/sex labels.
+For vague comparative filters on numeric or date-derived values, ask clarify before final_sql unless the user gave an explicit threshold or date range.
+Examples: young/old, younger/older, recent/old, new/long-time, high/low, expensive/cheap, big/small, fast/slow, many/few, mature/early.
+If the user asks for age concepts such as young, old, or adult and only a birthdate/date column is available, ask what age range or cutoff to use.
 
 Rules:
 - Return one JSON object and nothing else
@@ -102,6 +106,7 @@ Rules:
 - If a tool observation resolves ambiguity, use it in final_sql
 - When tool observations show categorical values, map natural language intent to the stored value before final_sql, for example active -> A/active/1/true, paid -> paid/P/1/true, high priority -> H/high/3, laki-laki/pria/male -> L/M/male, perempuan/wanita/female -> P/F/female when those values are present
 - If safe inspection is not allowed and the request is ambiguous, ask clarify
+- If a numeric/date threshold is subjective or missing, ask clarify instead of inventing a cutoff
 - Never ask for arbitrary row samples
 - Never expose or request PII
 - If the user explicitly asks to insert dummy, sample, test, seed, or fake data, generate a valid mutating SQL statement with clearly synthetic values
@@ -112,7 +117,10 @@ Rules:
 - For mutating queries, be conservative and precise
 
 Current schema:
-${schemaText}`;
+${schemaText}
+
+Schema profile hints:
+${schemaProfileText}`;
 }
 
 export function buildERDSystemPrompt(dialect: Dialect = "postgresql"): string {

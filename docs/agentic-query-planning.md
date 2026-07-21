@@ -129,11 +129,11 @@ Classify columns before allowing any inspection tool.
 
 Do not inspect distinct values for columns likely to contain PII, secrets, or free text:
 
-- Names: `name`, `full_name`, `first_name`, `last_name`, `nama`
+- Names: `name`, `full_name`, `first_name`, `last_name`
 - Email: `email`, `mail`
-- Phone: `phone`, `mobile`, `telp`, `whatsapp`
-- Address/location detail: `address`, `alamat`, `street`, `lat`, `lng`
-- IDs and identifiers: `nik`, `ktp`, `ssn`, `passport`, `npwp`, `tax_id`
+- Phone: `phone`, `mobile`, `whatsapp`
+- Address/location detail: `address`, `street`, `lat`, `lng`
+- IDs and identifiers: `ssn`, `passport`, `national_id`, `tax_id`
 - Credentials/secrets: `password`, `token`, `secret`, `api_key`
 - Free text: `note`, `notes`, `comment`, `description`, `message`, `bio`
 
@@ -141,11 +141,22 @@ Do not inspect distinct values for columns likely to contain PII, secrets, or fr
 
 Distinct inspection is allowed for low-cardinality categorical columns:
 
-- Gender/sex fields: `gender`, `sex`, `jenis_kelamin`, `jk`
+- Gender/sex fields: `gender`, `sex`
 - Status fields: `status`, `state`, `stage`
 - Boolean flags: `is_*`, `has_*`, `*_flag`
-- Type/category fields: `type`, `category`, `kategori`, `role`
+- Type/category fields: `type`, `category`, `role`
 - Enumerated codes with low cardinality
+
+Default policy should remain language-neutral and mostly English/common technical naming. Localized or project-specific columns should be configured through `vibeql.config.json`, not hardcoded into global defaults:
+
+```json
+{
+  "agentPolicy": {
+    "allowedCategoricalColumns": ["pegawai.jenis_kelamin"],
+    "sensitiveColumns": ["pegawai.nama"]
+  }
+}
+```
 
 ### Runtime Guardrails
 
@@ -213,6 +224,7 @@ Current implementation status:
 - Prompt submission now uses the agent route first; final SQL still flows through existing execution safety gates.
 - M3 Clarification fallback is implemented in the query UI: `clarify` events render as an answer form and continue planning with the user's answer.
 - M4 Repair suggestions are implemented: `/api/repair` returns structured suggested SQL plus a short summary, and the UI asks users to review before running it.
+- M5 Schema Understanding is implemented as deterministic metadata-only profiling. The planner receives hints for sensitive, categorical, date, display, and FK-like columns.
 
 ## Additional Agent/Chain Opportunities
 

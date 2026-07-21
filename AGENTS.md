@@ -50,6 +50,7 @@ Use `pnpm typecheck` and `pnpm lint` for normal validation. Run `pnpm build` for
 - Keep connection credentials request-scoped/session-scoped. Do not persist them to disk or a database.
 - After schema-changing operations or imports, refresh schema state in the sidebar.
 - Multiple PostgreSQL schemas are supported; generated SQL must stay restricted to the selected schema context.
+- Keep built-in agent safety patterns language-neutral/common English. Use `vibeql.config.json` for localized or project-specific sensitive/categorical column overrides.
 
 ## Query Behavior
 
@@ -101,4 +102,3 @@ Relevant env vars:
 - `OLLAMA_BASE_URL`
 
 Database connection details are entered by the user in the app and should not be persisted server-side.
-

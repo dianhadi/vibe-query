@@ -1,5 +1,6 @@
 import { Schema } from "@/types";
 import { Dialect } from "@/lib/db/dialect";
+import { schemaProfileToString } from "@/lib/agent/schema-profile";
 import { buildSystemPrompt, buildERDSystemPrompt, buildAnalyzeSystemPrompt, buildRepairSystemPrompt, buildAgentPlanningSystemPrompt } from "./prompts";
 import { schemaToString } from "@/lib/db/introspect";
 import { AIAdapter } from "./adapters/types";
@@ -159,7 +160,13 @@ export async function planQueryAction(
   dialect: Dialect = "postgresql"
 ): Promise<AgentPlanningAction> {
   const adapter = createAdapter();
-  const systemPrompt = buildAgentPlanningSystemPrompt(schemaToString(schema, dbSchema, dialect), pageSize, dbSchema, dialect);
+  const systemPrompt = buildAgentPlanningSystemPrompt(
+    schemaToString(schema, dbSchema, dialect),
+    schemaProfileToString(schema),
+    pageSize,
+    dbSchema,
+    dialect
+  );
   const userPrompt = [
     `User request:\n${prompt}`,
     observations.length > 0 ? `Tool observations:\n${observations.join("\n")}` : "Tool observations: none",
