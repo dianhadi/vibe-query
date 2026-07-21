@@ -132,6 +132,40 @@ Schema profile hints:
 ${schemaProfileText}`;
 }
 
+export function buildDataQualitySystemPrompt(
+  schemaText: string,
+  schemaProfileText: string,
+  dbSchema = "public",
+  dialect: Dialect = "postgresql"
+): string {
+  const dbName = dialect === "mysql" ? "MySQL" : "PostgreSQL";
+  const schemaRule = dialect === "mysql"
+    ? `Only generate checks for the '${dbSchema}' database.`
+    : `Only generate checks for the '${dbSchema}' schema.`;
+
+  return `You are a ${dbName} data quality planner for vibeQL.
+Generate safe read-only audit checks from schema metadata only.
+
+Rules:
+- Output strict JSON only. No markdown and no extra text.
+- Shape: {"summary":"...","checks":[{"title":"...","table":"...","severity":"low|medium|high","sql":"...","reason":"..."}]}
+- Every sql must be exactly one SELECT statement.
+- ${schemaRule}
+- Use only tables and columns from the schema.
+- Do not generate INSERT, UPDATE, DELETE, TRUNCATE, CREATE, ALTER, DROP, or other mutating SQL.
+- Do not select raw sensitive columns such as names, emails, phones, addresses, notes, comments, messages, tokens, or secrets.
+- Prefer aggregate checks that return counts and examples of non-sensitive keys.
+- Useful checks include null rates, duplicate keys, invalid dates, impossible numeric ranges, orphan FK-like references, invalid enum/categorical values, and inconsistent statuses.
+- Limit each check result to at most 50 rows.
+- Generate at most 8 checks.
+
+Current schema:
+${schemaText}
+
+Schema profile hints:
+${schemaProfileText}`;
+}
+
 export function buildERDSystemPrompt(dialect: Dialect = "postgresql"): string {
   const dbName = dialect === "mysql" ? "MySQL" : "PostgreSQL";
   return `You are a database schema expert.

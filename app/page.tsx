@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import {
   ConnectionConfig, Schema, QueryHistoryItem, QueryType,
-  QueryResult as QueryResultType, PageSize, DEFAULT_PAGE_SIZE, AgentStreamEvent, PerformanceAnalysis,
+  QueryResult as QueryResultType, PageSize, DEFAULT_PAGE_SIZE, AgentStreamEvent, PerformanceAnalysis, DataQualityPlan,
 } from "@/types";
 import { getLimitValue, stripLimitOffset, classifyQueryType, applyOrderBy } from "@/lib/db/execute";
 import ConnectionForm from "@/components/ConnectionForm";
@@ -15,6 +15,7 @@ import QueryHistory from "@/components/QueryHistory";
 import FileImport from "@/components/FileImport";
 import PaginationConfirm from "@/components/PaginationConfirm";
 import ERDViewer from "@/components/ERDViewer";
+import DataQualityPanel from "@/components/DataQualityPanel";
 import AISettingsDialog from "@/components/AISettingsDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
@@ -23,7 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Toaster } from "@/components/ui/sonner";
 import Image from "next/image";
-import { LogOut, Terminal, Upload, GitBranch, Clock, Wrench } from "lucide-react";
+import { ClipboardCheck, LogOut, Terminal, Upload, GitBranch, Clock, Wrench } from "lucide-react";
 
 type AppState =
   | { kind: "idle" }
@@ -215,6 +216,9 @@ export default function Home() {
   const [erdMermaid, setErdMermaid] = useState<string | null>(null);
   const [erdLoading, setErdLoading] = useState(false);
   const [erdError, setErdError] = useState<string | null>(null);
+  const [dataQualityPlan, setDataQualityPlan] = useState<DataQualityPlan | null>(null);
+  const [dataQualityLoading, setDataQualityLoading] = useState(false);
+  const [dataQualityError, setDataQualityError] = useState<string | null>(null);
   const [schemaRefreshing, setSchemaRefreshing] = useState(false);
 
   function resetState() {
@@ -229,6 +233,9 @@ export default function Home() {
     setErdMermaid(null);
     setErdLoading(false);
     setErdError(null);
+    setDataQualityPlan(null);
+    setDataQualityLoading(false);
+    setDataQualityError(null);
     setSchemaRefreshing(false);
   }
 
@@ -607,6 +614,8 @@ export default function Home() {
         setSchema(data.schema);
         setErdMermaid(null);
         setErdError(null);
+        setDataQualityPlan(null);
+        setDataQualityError(null);
         saveSession(connectionConfig, data.schema, dbSchemas, schemaName);
       }
     } finally {
@@ -620,6 +629,8 @@ export default function Home() {
     setAppState({ kind: "idle" });
     setErdMermaid(null);
     setErdError(null);
+    setDataQualityPlan(null);
+    setDataQualityError(null);
     const res = await fetch("/api/schema", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -636,6 +647,8 @@ export default function Home() {
     refreshSchema();
     setErdMermaid(null);
     setErdError(null);
+    setDataQualityPlan(null);
+    setDataQualityError(null);
   }
 
   async function handleGenerateERD() {
@@ -659,6 +672,40 @@ export default function Home() {
       setErdError(err instanceof Error ? err.message : "Failed to generate ERD");
     } finally {
       setErdLoading(false);
+    }
+  }
+
+  async function handleGenerateDataQualityChecks() {
+    if (!schema || !connectionConfig) return;
+    setDataQualityLoading(true);
+    setDataQualityError(null);
+    try {
+      const res = await fetch("/api/data-quality", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ schema, dbSchema: currentDbSchema, dialect: connectionConfig.dialect }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setDataQualityError(data.error);
+      } else {
+        setDataQualityPlan(data.plan);
+      }
+    } catch (err) {
+      setDataQualityError(err instanceof Error ? err.message : "Failed to generate data quality checks");
+    } finally {
+      setDataQualityLoading(false);
+    }
+  }
+
+  async function handleRunDataQualityCheck(sql: string, title: string) {
+    setCurrentPrompt(`Data quality: ${title}`);
+    setActiveTab("query");
+    setAppState({ kind: "executing" });
+    try {
+      await processSQL(sql, `Data quality: ${title}`);
+    } catch (err) {
+      setAppState({ kind: "error", message: err instanceof Error ? err.message : "Unexpected error" });
     }
   }
 
@@ -760,6 +807,13 @@ export default function Home() {
               >
                 <GitBranch className="h-4 w-4" />
                 ERD
+              </TabsTrigger>
+              <TabsTrigger
+                value="quality"
+                className="h-11 gap-2 rounded-none border-b-2 border-transparent px-4 data-[state=active]:border-primary data-[state=active]:bg-primary/10 data-[state=active]:shadow-none text-muted-foreground data-[state=active]:text-primary font-medium"
+              >
+                <ClipboardCheck className="h-4 w-4" />
+                Quality
               </TabsTrigger>
               <TabsTrigger
                 value="history"
@@ -1040,6 +1094,16 @@ export default function Home() {
               loading={erdLoading}
               error={erdError}
               onGenerate={handleGenerateERD}
+            />
+          </TabsContent>
+
+          <TabsContent value="quality" className="flex-1 overflow-auto p-4 mt-0">
+            <DataQualityPanel
+              plan={dataQualityPlan}
+              loading={dataQualityLoading}
+              error={dataQualityError}
+              onGenerate={handleGenerateDataQualityChecks}
+              onRunCheck={handleRunDataQualityCheck}
             />
           </TabsContent>
 

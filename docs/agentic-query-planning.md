@@ -226,6 +226,7 @@ Current implementation status:
 - M4 Repair suggestions are implemented: `/api/repair` returns structured suggested SQL plus a short summary, and the UI asks users to review before running it.
 - M5 Schema Understanding is implemented as deterministic metadata-only profiling. The planner receives hints for sensitive, categorical, date, display, and FK-like columns.
 - M6 Performance Tuning is implemented as structured analysis suggestions. Query rewrites can be tried, and index suggestions can be applied through the existing DDL confirmation flow.
+- Data Quality Agent is implemented as a read-only Quality tab. It generates audit SELECT checks from schema metadata, and users choose which checks to run.
 
 ## Additional Agent/Chain Opportunities
 

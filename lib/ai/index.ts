@@ -1,8 +1,8 @@
-import { PerformanceAnalysis, PerformanceSuggestion, Schema } from "@/types";
+import { DataQualityCheck, DataQualityPlan, PerformanceAnalysis, PerformanceSuggestion, Schema } from "@/types";
 import { Dialect } from "@/lib/db/dialect";
 import { schemaProfileToString } from "@/lib/agent/schema-profile";
 import { classifyQueryType } from "@/lib/db/execute";
-import { buildSystemPrompt, buildERDSystemPrompt, buildAnalyzeSystemPrompt, buildRepairSystemPrompt, buildAgentPlanningSystemPrompt } from "./prompts";
+import { buildSystemPrompt, buildERDSystemPrompt, buildAnalyzeSystemPrompt, buildRepairSystemPrompt, buildAgentPlanningSystemPrompt, buildDataQualitySystemPrompt } from "./prompts";
 import { schemaToString } from "@/lib/db/introspect";
 import { AIAdapter } from "./adapters/types";
 import { AnthropicAdapter } from "./adapters/anthropic";
@@ -124,6 +124,50 @@ function parsePerformanceAnalysis(raw: string): PerformanceAnalysis {
   };
 }
 
+function parseDataQualityPlan(raw: string): DataQualityPlan {
+  const cleaned = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
+  const parsed = JSON.parse(cleaned) as Partial<DataQualityPlan>;
+  if (typeof parsed.summary !== "string" || !parsed.summary.trim()) {
+    throw new Error("AI returned an invalid data quality summary");
+  }
+
+  const checks = Array.isArray(parsed.checks)
+    ? parsed.checks.flatMap((item): DataQualityCheck[] => {
+        if (!item || typeof item !== "object") return [];
+        const check = item as Partial<DataQualityCheck>;
+        if (
+          typeof check.title !== "string" ||
+          typeof check.table !== "string" ||
+          (check.severity !== "low" && check.severity !== "medium" && check.severity !== "high") ||
+          typeof check.sql !== "string" ||
+          typeof check.reason !== "string"
+        ) {
+          return [];
+        }
+
+        const sql = cleanSQL(check.sql);
+        if (classifyQueryType(sql) !== "SELECT") return [];
+
+        return [{
+          title: check.title.trim(),
+          table: check.table.trim(),
+          severity: check.severity,
+          sql,
+          reason: check.reason.trim(),
+        }];
+      })
+    : [];
+
+  return {
+    summary: parsed.summary.trim(),
+    checks,
+  };
+}
+
 export async function generateERD(
   schema: Schema,
   dbSchema = "public",
@@ -197,6 +241,23 @@ export async function generateSQL(
   logAICall("generateSQL", prompt);
   const raw = await adapter.generateSQL(systemPrompt, prompt);
   return cleanSQL(raw);
+}
+
+export async function generateDataQualityPlan(
+  schema: Schema,
+  dbSchema = "public",
+  dialect: Dialect = "postgresql"
+): Promise<DataQualityPlan> {
+  const adapter = createAdapter();
+  const systemPrompt = buildDataQualitySystemPrompt(
+    schemaToString(schema, dbSchema, dialect),
+    schemaProfileToString(schema),
+    dbSchema,
+    dialect
+  );
+  logAICall("generateDataQualityPlan", `schema=${dbSchema}`);
+  const raw = await adapter.generateSQL(systemPrompt, "Generate data quality checks for this schema.");
+  return parseDataQualityPlan(raw);
 }
 
 export async function planQueryAction(

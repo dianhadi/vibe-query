@@ -65,6 +65,19 @@ export interface PerformanceAnalysis {
   notes?: string[];
 }
 
+export interface DataQualityCheck {
+  title: string;
+  table: string;
+  severity: "low" | "medium" | "high";
+  sql: string;
+  reason: string;
+}
+
+export interface DataQualityPlan {
+  summary: string;
+  checks: DataQualityCheck[];
+}
+
 export interface GenerateResult {
   sql: string;
   queryType: QueryType;
