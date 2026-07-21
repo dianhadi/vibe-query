@@ -2,6 +2,8 @@ import { DataQualityCheck, DataQualityPlan, PerformanceAnalysis, PerformanceSugg
 import { Dialect } from "@/lib/db/dialect";
 import { schemaProfileToString } from "@/lib/agent/schema-profile";
 import { classifyQueryType } from "@/lib/db/execute";
+import { assertCanSendToAI } from "@/lib/policy/ai-context-policy";
+import { hasMultipleStatements } from "@/lib/policy/sql-policy";
 import { buildSystemPrompt, buildERDSystemPrompt, buildAnalyzeSystemPrompt, buildRepairSystemPrompt, buildAgentPlanningSystemPrompt, buildDataQualitySystemPrompt } from "./prompts";
 import { schemaToString } from "@/lib/db/introspect";
 import { AIAdapter } from "./adapters/types";
@@ -64,12 +66,81 @@ function createAdapter(): AIAdapter {
   }
 }
 
+function cleanJSONText(raw: string): string {
+  const unfenced = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
+  const start = unfenced.indexOf("{");
+  const end = unfenced.lastIndexOf("}");
+  return start >= 0 && end > start ? unfenced.slice(start, end + 1) : unfenced;
+}
+
+function escapeRawControlCharsInStrings(text: string): string {
+  let result = "";
+  let inString = false;
+  let escaping = false;
+
+  for (const char of text) {
+    if (escaping) {
+      result += char;
+      escaping = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      result += char;
+      escaping = true;
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = !inString;
+      result += char;
+      continue;
+    }
+
+    if (inString && char === "\n") {
+      result += "\\n";
+      continue;
+    }
+    if (inString && char === "\r") {
+      result += "\\r";
+      continue;
+    }
+    if (inString && char === "\t") {
+      result += "\\t";
+      continue;
+    }
+
+    result += char;
+  }
+
+  return result;
+}
+
+function parseModelJSON<T>(raw: string): T {
+  const cleaned = cleanJSONText(raw);
+  try {
+    return JSON.parse(cleaned) as T;
+  } catch {
+    try {
+      return JSON.parse(escapeRawControlCharsInStrings(cleaned)) as T;
+    } catch {
+      throw new Error("AI returned invalid JSON. Please retry or rephrase the request.");
+    }
+  }
+}
+
 export async function analyzeQueryPlan(
   sql: string,
   explainText: string,
   dialect: Dialect = "postgresql"
 ): Promise<PerformanceAnalysis> {
   const adapter = createAdapter();
+  assertCanSendToAI("sql");
+  assertCanSendToAI("explain");
   const systemPrompt = buildAnalyzeSystemPrompt(dialect);
   const explainLabel = dialect === "mysql" ? "EXPLAIN" : "EXPLAIN ANALYZE";
   const userPrompt = `SQL Query:\n\`\`\`sql\n${sql}\n\`\`\`\n\n${explainLabel} output:\n\`\`\`\n${explainText}\n\`\`\``;
@@ -79,12 +150,7 @@ export async function analyzeQueryPlan(
 }
 
 function parsePerformanceAnalysis(raw: string): PerformanceAnalysis {
-  const cleaned = raw
-    .trim()
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/\s*```$/, "")
-    .trim();
-  const parsed = JSON.parse(cleaned) as Partial<PerformanceAnalysis>;
+  const parsed = parseModelJSON<Partial<PerformanceAnalysis>>(raw);
   if (typeof parsed.summary !== "string" || !parsed.summary.trim()) {
     throw new Error("AI returned an invalid analysis summary");
   }
@@ -103,6 +169,7 @@ function parsePerformanceAnalysis(raw: string): PerformanceAnalysis {
         }
 
         const cleanSuggestionSql = cleanSQL(suggestion.sql);
+        if (hasMultipleStatements(cleanSuggestionSql)) return [];
         if (suggestion.kind === "rewrite" && classifyQueryType(cleanSuggestionSql) !== "SELECT") return [];
         if (suggestion.kind === "index" && !/^CREATE\s+(UNIQUE\s+)?INDEX\b/i.test(cleanSuggestionSql)) return [];
 
@@ -125,12 +192,7 @@ function parsePerformanceAnalysis(raw: string): PerformanceAnalysis {
 }
 
 function parseDataQualityPlan(raw: string): DataQualityPlan {
-  const cleaned = raw
-    .trim()
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/\s*```$/, "")
-    .trim();
-  const parsed = JSON.parse(cleaned) as Partial<DataQualityPlan>;
+  const parsed = parseModelJSON<Partial<DataQualityPlan>>(raw);
   if (typeof parsed.summary !== "string" || !parsed.summary.trim()) {
     throw new Error("AI returned an invalid data quality summary");
   }
@@ -150,6 +212,7 @@ function parseDataQualityPlan(raw: string): DataQualityPlan {
         }
 
         const sql = cleanSQL(check.sql);
+        if (hasMultipleStatements(sql)) return [];
         if (classifyQueryType(sql) !== "SELECT") return [];
 
         return [{
@@ -174,6 +237,7 @@ export async function generateERD(
   dialect: Dialect = "postgresql"
 ): Promise<string> {
   const adapter = createAdapter();
+  assertCanSendToAI("schema");
   const systemPrompt = buildERDSystemPrompt(dialect);
   const userPrompt = `Generate a Mermaid erDiagram for this schema:\n\n${schemaToString(schema, dbSchema, dialect)}`;
   logAICall("generateERD", `schema=${dbSchema}`);
@@ -201,12 +265,7 @@ export interface RepairSuggestion {
 }
 
 function parsePlanningAction(raw: string): AgentPlanningAction {
-  const cleaned = raw
-    .trim()
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/\s*```$/, "")
-    .trim();
-  const parsed = JSON.parse(cleaned) as Partial<AgentPlanningAction>;
+  const parsed = parseModelJSON<Partial<AgentPlanningAction>>(raw);
 
   if (parsed.action === "final_sql" && typeof parsed.sql === "string" && parsed.sql.trim()) {
     return { action: "final_sql", sql: cleanSQL(parsed.sql) };
@@ -237,6 +296,7 @@ export async function generateSQL(
   dialect: Dialect = "postgresql"
 ): Promise<string> {
   const adapter = createAdapter();
+  assertCanSendToAI("schema");
   const systemPrompt = buildSystemPrompt(schemaToString(schema, dbSchema, dialect), pageSize, dbSchema, dialect);
   logAICall("generateSQL", prompt);
   const raw = await adapter.generateSQL(systemPrompt, prompt);
@@ -249,6 +309,8 @@ export async function generateDataQualityPlan(
   dialect: Dialect = "postgresql"
 ): Promise<DataQualityPlan> {
   const adapter = createAdapter();
+  assertCanSendToAI("schema");
+  assertCanSendToAI("schema_profile");
   const systemPrompt = buildDataQualitySystemPrompt(
     schemaToString(schema, dbSchema, dialect),
     schemaProfileToString(schema),
@@ -269,6 +331,9 @@ export async function planQueryAction(
   dialect: Dialect = "postgresql"
 ): Promise<AgentPlanningAction> {
   const adapter = createAdapter();
+  assertCanSendToAI("schema");
+  assertCanSendToAI("schema_profile");
+  assertCanSendToAI("tool_observation");
   const systemPrompt = buildAgentPlanningSystemPrompt(
     schemaToString(schema, dbSchema, dialect),
     schemaProfileToString(schema),
@@ -294,16 +359,14 @@ export async function repairSQL(
   dialect: Dialect = "postgresql"
 ): Promise<RepairSuggestion> {
   const adapter = createAdapter();
+  assertCanSendToAI("schema");
+  assertCanSendToAI("sql");
+  assertCanSendToAI("db_error");
   const systemPrompt = buildRepairSystemPrompt(schemaToString(schema, dbSchema, dialect), dbSchema, dialect);
   const userPrompt = `Original request:\n${originalPrompt || "(not available)"}\n\nFailed SQL:\n\`\`\`sql\n${failedSql}\n\`\`\`\n\nDatabase error:\n${errorMessage}`;
   logAICall("repairSQL", failedSql);
   const raw = await adapter.generateSQL(systemPrompt, userPrompt);
-  const cleaned = raw
-    .trim()
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/\s*```$/, "")
-    .trim();
-  const parsed = JSON.parse(cleaned) as Partial<RepairSuggestion>;
+  const parsed = parseModelJSON<Partial<RepairSuggestion>>(raw);
   if (typeof parsed.sql !== "string" || !parsed.sql.trim()) {
     throw new Error("AI returned an invalid repair SQL");
   }

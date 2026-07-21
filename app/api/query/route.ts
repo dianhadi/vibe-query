@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withClient } from "@/lib/db/client";
 import { executeSelect, executeSelectPaginated } from "@/lib/db/execute";
+import { getSQLExecutionPolicy } from "@/lib/policy/sql-policy";
 import { ConnectionConfig } from "@/types";
 
 export async function POST(req: NextRequest) {
@@ -17,6 +18,12 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    const policy = getSQLExecutionPolicy(sql);
+    if (policy.action !== "allow") {
+      const message = policy.action === "refuse" ? policy.reason : "Only SELECT statements can be executed by this endpoint.";
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
+
     const result =
       page !== undefined && pageSize !== undefined
         ? await withClient(connectionConfig, (client) =>

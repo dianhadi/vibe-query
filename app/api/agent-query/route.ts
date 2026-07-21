@@ -1,8 +1,8 @@
 import { NextRequest } from "next/server";
 import { planQueryAction } from "@/lib/ai";
 import { withClient } from "@/lib/db/client";
-import { classifyQueryType } from "@/lib/db/execute";
 import { inspectDistinctValues } from "@/lib/agent/tools";
+import { getSQLExecutionPolicy } from "@/lib/policy/sql-policy";
 import { AgentStreamEvent, ConnectionConfig, Dialect, Schema } from "@/types";
 
 const MAX_AGENT_STEPS = 4;
@@ -65,9 +65,13 @@ export async function POST(req: NextRequest) {
           );
 
           if (action.action === "final_sql") {
-            const queryType = classifyQueryType(action.sql);
+            const policy = getSQLExecutionPolicy(action.sql);
+            if (policy.action === "refuse") {
+              controller.enqueue(encodeEvent({ type: "error", error: policy.reason }));
+              return;
+            }
             controller.enqueue(encodeEvent({ type: "status", message: "Generated SQL." }));
-            controller.enqueue(encodeEvent({ type: "final_sql", sql: action.sql, queryType }));
+            controller.enqueue(encodeEvent({ type: "final_sql", sql: action.sql, queryType: policy.queryType }));
             return;
           }
 

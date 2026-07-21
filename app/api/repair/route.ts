@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { repairSQL } from "@/lib/ai";
-import { classifyQueryType } from "@/lib/db/execute";
+import { getSQLExecutionPolicy } from "@/lib/policy/sql-policy";
 import { AgentStreamEvent, Dialect, QueryType, Schema } from "@/types";
 
 function encodeEvent(event: AgentStreamEvent): Uint8Array {
@@ -53,8 +53,14 @@ export async function POST(req: NextRequest) {
           dialect ?? "postgresql"
         );
 
-        const originalType = classifyQueryType(failedSql);
-        const repairedType = classifyQueryType(suggestion.sql);
+        const originalPolicy = getSQLExecutionPolicy(failedSql);
+        const repairedPolicy = getSQLExecutionPolicy(suggestion.sql);
+        if (repairedPolicy.action === "refuse") {
+          controller.enqueue(encodeEvent({ type: "error", error: repairedPolicy.reason }));
+          return;
+        }
+        const originalType = originalPolicy.action === "refuse" ? repairedPolicy.queryType : originalPolicy.queryType;
+        const repairedType = repairedPolicy.queryType;
         if (!sameQueryCategory(originalType, repairedType)) {
           controller.enqueue(encodeEvent({
             type: "error",

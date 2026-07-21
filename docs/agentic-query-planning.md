@@ -227,6 +227,7 @@ Current implementation status:
 - M5 Schema Understanding is implemented as deterministic metadata-only profiling. The planner receives hints for sensitive, categorical, date, display, and FK-like columns.
 - M6 Performance Tuning is implemented as structured analysis suggestions. Query rewrites can be tried, and index suggestions can be applied through the existing DDL confirmation flow.
 - Data Quality Agent is implemented as a read-only Quality tab. It generates audit SELECT checks from schema metadata, and users choose which checks to run.
+- Policy hardening is implemented with centralized SQL execution policy and AI context policy. Query, mutation, agent, repair, analyzer, and data-quality paths validate supported statement categories and reject multiple statements.
 
 ## Additional Agent/Chain Opportunities
 

@@ -12,6 +12,7 @@ Your job is to analyze the query plan and return structured, actionable tuning s
 
 Rules:
 - Output strict JSON only. No markdown and no extra text.
+- JSON string values must be valid JSON strings; do not put raw line breaks inside string values.
 - Shape:
   {
     "summary": "one or two sentences",
@@ -54,6 +55,7 @@ Your job is to repair the SQL using only the provided schema and error.
 
 Rules:
 - Output strict JSON only: {"sql":"...","summary":"..."}
+- JSON string values must be valid JSON strings; do not put raw line breaks inside string values.
 - The sql field must contain exactly one valid ${dbName} SQL statement
 - The summary field must be a concise user-facing explanation of what changed, at most 20 words
 - No markdown and no extra keys
@@ -108,6 +110,7 @@ If the user asks for age concepts such as young, old, or adult and only a birthd
 
 Rules:
 - Return one JSON object and nothing else
+- JSON string values must be valid JSON strings; do not put raw line breaks inside string values.
 - ${schemaRule}
 - ${paginationRule}
 - Always preserve user intent
@@ -148,6 +151,7 @@ Generate safe read-only audit checks from schema metadata only.
 
 Rules:
 - Output strict JSON only. No markdown and no extra text.
+- JSON string values must be valid JSON strings; do not put raw line breaks inside string values.
 - Shape: {"summary":"...","checks":[{"title":"...","table":"...","severity":"low|medium|high","sql":"...","reason":"..."}]}
 - Every sql must be exactly one SELECT statement.
 - ${schemaRule}

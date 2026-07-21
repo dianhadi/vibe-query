@@ -51,6 +51,7 @@ Use `pnpm typecheck` and `pnpm lint` for normal validation. Run `pnpm build` for
 - After schema-changing operations or imports, refresh schema state in the sidebar.
 - Multiple PostgreSQL schemas are supported; generated SQL must stay restricted to the selected schema context.
 - Keep built-in agent safety patterns language-neutral/common English. Use `vibeql.config.json` for localized or project-specific sensitive/categorical column overrides.
+- Route SQL execution and agent-generated SQL through `lib/policy/sql-policy.ts`; do not add separate ad hoc SELECT/mutation/DDL gates.
 
 ## Query Behavior
 

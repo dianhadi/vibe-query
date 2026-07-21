@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withClient } from "@/lib/db/client";
-import { classifyQueryType, executeMutation, executeMutationPreview } from "@/lib/db/execute";
+import { executeMutation, executeMutationPreview } from "@/lib/db/execute";
+import { canCommitMutation, canPreviewMutation } from "@/lib/policy/sql-policy";
 import { ConnectionConfig } from "@/types";
 
 export async function POST(req: NextRequest) {
@@ -17,17 +18,20 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const queryType = classifyQueryType(sql);
-    if (!confirmed && queryType === "DDL") {
-      return NextResponse.json({ error: "DDL statements require explicit confirmation and cannot be previewed." }, { status: 400 });
-    }
-
     if (!confirmed) {
+      const policy = canPreviewMutation(sql);
+      if (!policy.allowed) {
+        return NextResponse.json({ error: policy.reason }, { status: 400 });
+      }
       const preview = await withClient(connectionConfig, (client) =>
         executeMutationPreview(client, sql), dbSchema
       );
       return NextResponse.json({ preview });
     } else {
+      const policy = canCommitMutation(sql);
+      if (!policy.allowed) {
+        return NextResponse.json({ error: policy.reason }, { status: 400 });
+      }
       const result = await withClient(connectionConfig, (client) =>
         executeMutation(client, sql), dbSchema
       );

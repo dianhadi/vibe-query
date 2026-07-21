@@ -5,7 +5,8 @@ import {
   ConnectionConfig, Schema, QueryHistoryItem, QueryType,
   QueryResult as QueryResultType, PageSize, DEFAULT_PAGE_SIZE, AgentStreamEvent, PerformanceAnalysis, DataQualityPlan,
 } from "@/types";
-import { getLimitValue, stripLimitOffset, classifyQueryType, applyOrderBy } from "@/lib/db/execute";
+import { getLimitValue, stripLimitOffset, applyOrderBy } from "@/lib/db/execute";
+import { getSQLExecutionPolicy } from "@/lib/policy/sql-policy";
 import ConnectionForm from "@/components/ConnectionForm";
 import SchemaExplorer from "@/components/SchemaExplorer";
 import PromptInput from "@/components/PromptInput";
@@ -311,9 +312,13 @@ export default function Home() {
     setSortCol(null);
     setSortDir("asc");
     // analysis is part of select_result state, cleared naturally when state changes
-    const queryType = classifyQueryType(sql);
+    const policy = getSQLExecutionPolicy(sql);
+    if (policy.action === "refuse") {
+      setAppState({ kind: "error", message: policy.reason, failedSql: sql });
+      return;
+    }
 
-    if (queryType === "SELECT") {
+    if (policy.action === "allow") {
       const limitValue = getLimitValue(sql);
       if (limitValue === null) {
         setAppState({ kind: "pagination_confirm", baseSql: sql });
@@ -323,12 +328,12 @@ export default function Home() {
         await runDirectSelect(sql, prompt);
       }
     } else {
-      if (queryType === "DDL") {
-        setAppState({ kind: "mutation_preview", sql, queryType, preview: null, previewLoading: false, commitLoading: false });
+      if (policy.action === "typed_confirm_required") {
+        setAppState({ kind: "mutation_preview", sql, queryType: policy.queryType, preview: null, previewLoading: false, commitLoading: false });
         return;
       }
 
-      setAppState({ kind: "mutation_preview", sql, queryType, preview: null, previewLoading: true, commitLoading: false });
+      setAppState({ kind: "mutation_preview", sql, queryType: policy.queryType, preview: null, previewLoading: true, commitLoading: false });
 
       const mRes = await fetch("/api/mutate", {
         method: "POST",
@@ -338,10 +343,10 @@ export default function Home() {
       const mData = await mRes.json();
 
       if (mData.error) {
-        setAppState({ kind: "mutation_preview", sql, queryType, preview: null, previewLoading: false, commitLoading: false, error: mData.error });
+        setAppState({ kind: "mutation_preview", sql, queryType: policy.queryType, preview: null, previewLoading: false, commitLoading: false, error: mData.error });
         return;
       }
-      setAppState({ kind: "mutation_preview", sql, queryType, preview: mData.preview ?? null, previewLoading: false, commitLoading: false });
+      setAppState({ kind: "mutation_preview", sql, queryType: policy.queryType, preview: mData.preview ?? null, previewLoading: false, commitLoading: false });
     }
   }
 
