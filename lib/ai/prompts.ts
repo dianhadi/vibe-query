@@ -44,8 +44,10 @@ The user will provide an original natural language request, a SQL statement that
 Your job is to repair the SQL using only the provided schema and error.
 
 Rules:
-- Output exactly one valid ${dbName} SQL statement
-- No markdown, no explanation — just the SQL
+- Output strict JSON only: {"sql":"...","summary":"..."}
+- The sql field must contain exactly one valid ${dbName} SQL statement
+- The summary field must be a concise user-facing explanation of what changed, at most 20 words
+- No markdown and no extra keys
 - Preserve the original user intent and query category
 - Do not invent tables or columns that are not in the schema
 - ${schemaRule}

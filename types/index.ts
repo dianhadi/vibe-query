@@ -52,6 +52,7 @@ export type AgentStreamEvent =
   | { type: "tool_result"; tool: "inspect_distinct"; summary: string }
   | { type: "clarify"; question: string }
   | { type: "final_sql"; sql: string; queryType: QueryType }
+  | { type: "repair_suggestion"; sql: string; queryType: QueryType; summary: string }
   | { type: "error"; error: string };
 
 export interface MutationPreview {

@@ -102,6 +102,11 @@ export type AgentPlanningAction =
   | { action: "clarify"; question: string }
   | { action: "refuse"; reason: string };
 
+export interface RepairSuggestion {
+  sql: string;
+  summary: string;
+}
+
 function parsePlanningAction(raw: string): AgentPlanningAction {
   const cleaned = raw
     .trim()
@@ -171,11 +176,26 @@ export async function repairSQL(
   schema: Schema,
   dbSchema = "public",
   dialect: Dialect = "postgresql"
-): Promise<string> {
+): Promise<RepairSuggestion> {
   const adapter = createAdapter();
   const systemPrompt = buildRepairSystemPrompt(schemaToString(schema, dbSchema, dialect), dbSchema, dialect);
   const userPrompt = `Original request:\n${originalPrompt || "(not available)"}\n\nFailed SQL:\n\`\`\`sql\n${failedSql}\n\`\`\`\n\nDatabase error:\n${errorMessage}`;
   logAICall("repairSQL", failedSql);
   const raw = await adapter.generateSQL(systemPrompt, userPrompt);
-  return cleanSQL(raw);
+  const cleaned = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
+  const parsed = JSON.parse(cleaned) as Partial<RepairSuggestion>;
+  if (typeof parsed.sql !== "string" || !parsed.sql.trim()) {
+    throw new Error("AI returned an invalid repair SQL");
+  }
+  if (typeof parsed.summary !== "string" || !parsed.summary.trim()) {
+    throw new Error("AI returned an invalid repair summary");
+  }
+  return {
+    sql: cleanSQL(parsed.sql),
+    summary: parsed.summary.trim(),
+  };
 }

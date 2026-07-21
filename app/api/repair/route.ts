@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
         controller.enqueue(encodeEvent({ type: "status", message: "Reviewing failed SQL and database error." }));
         controller.enqueue(encodeEvent({ type: "status", message: "Checking the query against the current schema." }));
 
-        const sql = await repairSQL(
+        const suggestion = await repairSQL(
           originalPrompt,
           failedSql,
           errorMessage,
@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
         );
 
         const originalType = classifyQueryType(failedSql);
-        const repairedType = classifyQueryType(sql);
+        const repairedType = classifyQueryType(suggestion.sql);
         if (!sameQueryCategory(originalType, repairedType)) {
           controller.enqueue(encodeEvent({
             type: "error",
@@ -64,7 +64,12 @@ export async function POST(req: NextRequest) {
         }
 
         controller.enqueue(encodeEvent({ type: "status", message: "Generated repaired SQL." }));
-        controller.enqueue(encodeEvent({ type: "final_sql", sql, queryType: repairedType }));
+        controller.enqueue(encodeEvent({
+          type: "repair_suggestion",
+          sql: suggestion.sql,
+          queryType: repairedType,
+          summary: suggestion.summary,
+        }));
       } catch (err) {
         controller.enqueue(encodeEvent({
           type: "error",

@@ -211,6 +211,8 @@ Current implementation status:
 - M2 Query Planning Agent is implemented through `/api/agent-query`.
 - `/api/agent-query` can stream planner status, call the internal `inspect_distinct` tool, stream sanitized tool summaries, and return `final_sql`.
 - Prompt submission now uses the agent route first; final SQL still flows through existing execution safety gates.
+- M3 Clarification fallback is implemented in the query UI: `clarify` events render as an answer form and continue planning with the user's answer.
+- M4 Repair suggestions are implemented: `/api/repair` returns structured suggested SQL plus a short summary, and the UI asks users to review before running it.
 
 ## Additional Agent/Chain Opportunities
 
@@ -265,19 +267,6 @@ Guardrails:
 - Do not bypass mutation preview or DDL confirmation.
 
 This is likely the highest-impact follow-up after query planning.
-
-### Result Explanation Agent
-
-Purpose: explain query results in natural language.
-
-Guardrails:
-
-- Do not send all rows to the model.
-- Prefer aggregate summaries, column metadata, row count, and safe samples only.
-- Apply the same PII detection used by inspection tools before sending any sample values.
-- For sensitive columns, explain structure and counts without exposing values.
-
-This can support "what does this result mean?" without turning the agent into a raw data exfiltration path.
 
 ### Performance Tuning Agent
 
@@ -395,11 +384,10 @@ Recommended order:
 4. Schema Understanding Agent.
 5. Performance Tuning Agent.
 6. Import Mapping Agent.
-7. Result Explanation Agent.
-8. Data Quality Agent.
-9. Dashboard Builder Agent.
-10. Migration Assistant Agent.
-11. Policy/Permission Agent as a shared layer once enough workflows exist.
+7. Data Quality Agent.
+8. Dashboard Builder Agent.
+9. Migration Assistant Agent.
+10. Policy/Permission Agent as a shared layer once enough workflows exist.
 
 Rationale:
 
@@ -407,7 +395,7 @@ Rationale:
 - Query planning and clarification directly improve the core prompt-to-SQL loop after the streaming shell exists.
 - Schema understanding makes later agents more accurate without touching row data.
 - Performance tuning already has a partial foundation.
-- Import mapping and result explanation have higher PII risk, so they should wait until guardrails are mature.
+- Import mapping has higher PII risk, so it should wait until guardrails are mature.
 - Dashboard and migration workflows are valuable but have wider UI and safety blast radius.
 
 ## Implementation Phases

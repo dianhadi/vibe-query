@@ -20,6 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Toaster } from "@/components/ui/sonner";
 import Image from "next/image";
 import { LogOut, Terminal, Upload, GitBranch, Clock, Wrench } from "lucide-react";
@@ -29,11 +30,13 @@ type AppState =
   | { kind: "loading" }
   | { kind: "executing" }
   | { kind: "agent_planning"; events: AgentStreamEvent[] }
+  | { kind: "clarify"; question: string; planningPrompt: string; displayPrompt: string; events: AgentStreamEvent[] }
   | { kind: "pagination_confirm"; baseSql: string }
   | { kind: "select_result"; baseSql: string; result: QueryResultType; page: number; pageSize: number; paginated: boolean; pageLoading: boolean; analysis?: string; analyzeLoading?: boolean; analyzeError?: string }
   | { kind: "mutation_preview"; sql: string; queryType: QueryType; preview: { rowsAffected: number; previewRows?: Record<string, unknown>[] } | null; previewLoading: boolean; commitLoading: boolean; error?: string }
   | { kind: "mutation_done"; sql: string; queryType: QueryType; rowsAffected: number }
   | { kind: "repairing"; failedSql: string; errorMessage: string; events: AgentStreamEvent[] }
+  | { kind: "repair_suggestion"; failedSql: string; suggestedSql: string; queryType: QueryType; summary: string }
   | { kind: "error"; message: string; failedSql?: string };
 
 const SESSION_KEY      = "vibeql_session";
@@ -75,9 +78,87 @@ function agentEventMessage(event: AgentStreamEvent): string {
       return event.question;
     case "final_sql":
       return "SQL is ready.";
+    case "repair_suggestion":
+      return "Repair suggestion is ready.";
     case "error":
       return event.error;
   }
+}
+
+type SqlDiffSegment = { text: string; changed: boolean };
+type SqlDiffRow = { kind: "same" | "removed" | "added"; segments: SqlDiffSegment[] };
+
+function splitChangedLine(beforeLine: string, afterLine: string): { before: SqlDiffSegment[]; after: SqlDiffSegment[] } {
+  let prefixLength = 0;
+  while (
+    prefixLength < beforeLine.length &&
+    prefixLength < afterLine.length &&
+    beforeLine[prefixLength] === afterLine[prefixLength]
+  ) {
+    prefixLength += 1;
+  }
+
+  let suffixLength = 0;
+  while (
+    suffixLength < beforeLine.length - prefixLength &&
+    suffixLength < afterLine.length - prefixLength &&
+    beforeLine[beforeLine.length - 1 - suffixLength] === afterLine[afterLine.length - 1 - suffixLength]
+  ) {
+    suffixLength += 1;
+  }
+
+  const beforePrefix = beforeLine.slice(0, prefixLength);
+  const beforeMiddle = beforeLine.slice(prefixLength, beforeLine.length - suffixLength);
+  const beforeSuffix = suffixLength > 0 ? beforeLine.slice(beforeLine.length - suffixLength) : "";
+  const afterPrefix = afterLine.slice(0, prefixLength);
+  const afterMiddle = afterLine.slice(prefixLength, afterLine.length - suffixLength);
+  const afterSuffix = suffixLength > 0 ? afterLine.slice(afterLine.length - suffixLength) : "";
+
+  return {
+    before: [
+      { text: beforePrefix, changed: false },
+      { text: beforeMiddle, changed: true },
+      { text: beforeSuffix, changed: false },
+    ].filter((segment) => segment.text.length > 0),
+    after: [
+      { text: afterPrefix, changed: false },
+      { text: afterMiddle, changed: true },
+      { text: afterSuffix, changed: false },
+    ].filter((segment) => segment.text.length > 0),
+  };
+}
+
+function sqlDiffLines(before: string, after: string): SqlDiffRow[] {
+  const beforeLines = before.trim().split(/\r?\n/);
+  const afterLines = after.trim().split(/\r?\n/);
+  const max = Math.max(beforeLines.length, afterLines.length);
+  const rows: SqlDiffRow[] = [];
+
+  for (let i = 0; i < max; i += 1) {
+    const beforeLine = beforeLines[i];
+    const afterLine = afterLines[i];
+
+    if (beforeLine === afterLine) {
+      if (beforeLine !== undefined) rows.push({ kind: "same", segments: [{ text: beforeLine, changed: false }] });
+      continue;
+    }
+
+    if (beforeLine !== undefined && afterLine !== undefined) {
+      const diff = splitChangedLine(beforeLine, afterLine);
+      if (diff.before.some((segment) => segment.changed && segment.text)) {
+        rows.push({ kind: "removed", segments: diff.before });
+      }
+      if (diff.after.some((segment) => segment.changed && segment.text)) {
+        rows.push({ kind: "added", segments: diff.after });
+      }
+      continue;
+    }
+
+    if (beforeLine !== undefined) rows.push({ kind: "removed", segments: [{ text: beforeLine, changed: true }] });
+    if (afterLine !== undefined) rows.push({ kind: "added", segments: [{ text: afterLine, changed: true }] });
+  }
+
+  return rows;
 }
 
 export default function Home() {
@@ -127,6 +208,7 @@ export default function Home() {
   const [history, setHistory] = useState<QueryHistoryItem[]>([]);
   const [activeTab, setActiveTab] = useState("query");
   const [currentPrompt, setCurrentPrompt] = useState("");
+  const [clarificationAnswer, setClarificationAnswer] = useState("");
   const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE);
   const [sortCol, setSortCol] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -140,6 +222,7 @@ export default function Home() {
     setHistory([]);
     setActiveTab("query");
     setCurrentPrompt("");
+    setClarificationAnswer("");
     setPageSize(DEFAULT_PAGE_SIZE);
     setSortCol(null);
     setSortDir("asc");
@@ -255,9 +338,14 @@ export default function Home() {
     }
   }
 
-  async function handlePrompt(prompt: string) {
+  async function handlePrompt(
+    prompt: string,
+    options: { displayPrompt?: string; updateInput?: boolean } = {}
+  ) {
     if (!schema || !connectionConfig) return;
-    setCurrentPrompt(prompt);
+    const displayPrompt = options.displayPrompt ?? prompt;
+    if (options.updateInput !== false) setCurrentPrompt(displayPrompt);
+    setClarificationAnswer("");
     setAppState({ kind: "agent_planning", events: [] });
 
     try {
@@ -299,12 +387,18 @@ export default function Home() {
           }
 
           if (event.type === "clarify") {
-            setAppState({ kind: "error", message: event.question });
+            setAppState((state) => ({
+              kind: "clarify",
+              question: event.question,
+              planningPrompt: prompt,
+              displayPrompt,
+              events: state.kind === "agent_planning" ? [...state.events, event] : [event],
+            }));
             return;
           }
 
           if (event.type === "final_sql") {
-            await processSQL(event.sql, prompt);
+            await processSQL(event.sql, displayPrompt);
             return;
           }
         }
@@ -314,6 +408,19 @@ export default function Home() {
     } catch (err) {
       setAppState({ kind: "error", message: err instanceof Error ? err.message : "Unexpected error" });
     }
+  }
+
+  async function handleClarificationSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (appState.kind !== "clarify") return;
+    const answer = clarificationAnswer.trim();
+    if (!answer) return;
+
+    const nextPlanningPrompt = `${appState.planningPrompt}\n\nUser clarification: ${answer}`;
+    await handlePrompt(nextPlanningPrompt, {
+      displayPrompt: appState.displayPrompt,
+      updateInput: false,
+    });
   }
 
   async function handleRerun(sql: string) {
@@ -375,8 +482,14 @@ export default function Home() {
             return;
           }
 
-          if (event.type === "final_sql") {
-            await processSQL(event.sql, currentPrompt);
+          if (event.type === "repair_suggestion") {
+            setAppState({
+              kind: "repair_suggestion",
+              failedSql,
+              suggestedSql: event.sql,
+              queryType: event.queryType,
+              summary: event.summary,
+            });
             return;
           }
         }
@@ -666,8 +779,8 @@ export default function Home() {
           <TabsContent value="query" className="flex-1 overflow-auto p-4 space-y-4 mt-0">
             <PromptInput
               onSubmit={handlePrompt}
-              loading={appState.kind === "loading" || appState.kind === "executing" || appState.kind === "repairing" || appState.kind === "agent_planning"}
-              loadingLabel={appState.kind === "repairing" ? "Repairing..." : appState.kind === "executing" ? "Running..." : appState.kind === "agent_planning" ? "Planning..." : "Generating..."}
+              loading={appState.kind === "loading" || appState.kind === "executing" || appState.kind === "repairing" || appState.kind === "agent_planning" || appState.kind === "clarify"}
+              loadingLabel={appState.kind === "clarify" ? "Waiting..." : appState.kind === "repairing" ? "Repairing..." : appState.kind === "executing" ? "Running..." : appState.kind === "agent_planning" ? "Planning..." : "Generating..."}
               value={currentPrompt}
               onChange={setCurrentPrompt}
             />
@@ -701,6 +814,39 @@ export default function Home() {
               </div>
             )}
 
+            {appState.kind === "clarify" && (
+              <div className="space-y-3 rounded-md border bg-muted/30 px-4 py-3">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Terminal className="h-4 w-4" />
+                  Clarification Needed
+                </div>
+                {appState.events.length > 1 && (
+                  <div className="space-y-1 text-sm text-muted-foreground">
+                    {appState.events.slice(0, -1).map((event, index) => (
+                      <p key={index}>{agentEventMessage(event)}</p>
+                    ))}
+                  </div>
+                )}
+                <p className="text-sm">{appState.question}</p>
+                <form onSubmit={handleClarificationSubmit} className="flex gap-2">
+                  <Input
+                    value={clarificationAnswer}
+                    onChange={(e) => setClarificationAnswer(e.target.value)}
+                    placeholder="Answer the question..."
+                    className="h-8 text-sm"
+                    autoFocus
+                  />
+                  <Button
+                    type="submit"
+                    size="sm"
+                    disabled={!clarificationAnswer.trim()}
+                  >
+                    Continue
+                  </Button>
+                </form>
+              </div>
+            )}
+
             {appState.kind === "executing" && (
               <p className="text-sm text-muted-foreground animate-pulse">Running query...</p>
             )}
@@ -718,6 +864,85 @@ export default function Home() {
                   {appState.events.map((event, index) => (
                     <p key={index}>{agentEventMessage(event)}</p>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {appState.kind === "repair_suggestion" && (
+              <div className="space-y-3 rounded-md border bg-muted/30 px-4 py-3">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Wrench className="h-4 w-4" />
+                  Suggested Repair
+                </div>
+                <p className="text-sm text-muted-foreground">{appState.summary}</p>
+                <div className="grid gap-3 lg:grid-cols-2">
+                  <div className="rounded-md border bg-muted text-sm font-mono overflow-x-auto">
+                    <div className="px-3 py-2 border-b bg-muted/60 text-xs text-muted-foreground">
+                      Failed SQL
+                    </div>
+                    <pre className="px-3 py-2 whitespace-pre-wrap break-all">{appState.failedSql}</pre>
+                  </div>
+                  <div className="rounded-md border bg-muted text-sm font-mono overflow-x-auto">
+                    <div className="px-3 py-2 border-b bg-muted/60 text-xs text-muted-foreground">
+                      Suggested SQL
+                    </div>
+                    <pre className="px-3 py-2 whitespace-pre-wrap break-all">{appState.suggestedSql}</pre>
+                  </div>
+                </div>
+                <div className="rounded-md border bg-muted text-sm font-mono overflow-x-auto">
+                  <div className="px-3 py-2 border-b bg-muted/60 text-xs text-muted-foreground">
+                    Changes
+                  </div>
+                  <div className="py-2">
+                    {sqlDiffLines(appState.failedSql, appState.suggestedSql).map((row, index) => (
+                      <div
+                        key={index}
+                        className={
+                          row.kind === "removed"
+                            ? "px-3 py-0.5 text-red-700 dark:text-red-300"
+                            : row.kind === "added"
+                              ? "px-3 py-0.5 text-green-700 dark:text-green-300"
+                              : "px-3 py-0.5 text-muted-foreground"
+                        }
+                      >
+                        <span className="mr-2 select-none">
+                          {row.kind === "removed" ? "-" : row.kind === "added" ? "+" : " "}
+                        </span>
+                        <span className="whitespace-pre-wrap break-all">
+                          {row.segments.map((segment, segmentIndex) => (
+                            <span
+                              key={segmentIndex}
+                              className={
+                                segment.changed
+                                  ? row.kind === "removed"
+                                    ? "rounded bg-red-500/20 px-0.5"
+                                    : row.kind === "added"
+                                      ? "rounded bg-green-500/20 px-0.5"
+                                      : undefined
+                                  : undefined
+                              }
+                            >
+                              {segment.text}
+                            </span>
+                          ))}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="gap-2"
+                    onClick={() => handleRerun(appState.suggestedSql)}
+                  >
+                    <Terminal className="h-3.5 w-3.5" />
+                    Run Suggested SQL
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" onClick={handleCancel}>
+                    Cancel
+                  </Button>
                 </div>
               </div>
             )}
