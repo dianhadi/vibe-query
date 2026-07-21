@@ -12,11 +12,19 @@ export class OpenAIAdapter implements AIAdapter {
     this.model = model;
   }
 
+  private usesCompletionTokenParam(): boolean {
+    return /^(gpt-5|o\d|o\d-|o\d\b)/i.test(this.model);
+  }
+
   async generateSQL(systemPrompt: string, userPrompt: string): Promise<string> {
     try {
+      const tokenParams = this.usesCompletionTokenParam()
+        ? { max_completion_tokens: 2048, reasoning_effort: "minimal" as const }
+        : { max_tokens: 2048 };
+
       const response = await this.client.chat.completions.create({
         model: this.model,
-        max_tokens: 1024,
+        ...tokenParams,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },

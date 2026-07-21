@@ -107,6 +107,8 @@ This applies broadly, for example active/inactive status, paid/unpaid payment st
 For vague comparative filters on numeric or date-derived values, ask clarify before final_sql unless the user gave an explicit threshold or date range.
 Examples: young/old, younger/older, recent/old, new/long-time, high/low, expensive/cheap, big/small, fast/slow, many/few, mature/early.
 If the user asks for age concepts such as young, old, or adult and only a birthdate/date column is available, ask what age range or cutoff to use.
+Requests for duplicate or equal values are not vague. If the user asks for records where a column is the same/equal/duplicate across rows, generate a SELECT using GROUP BY/HAVING or a join/subquery to return the matching rows.
+Examples: same birth date, duplicate email, same invoice number, duplicate customer code.
 
 Rules:
 - Return one JSON object and nothing else
@@ -119,6 +121,7 @@ Rules:
 - When tool observations show categorical values, map natural language intent to the stored value before final_sql, for example active -> A/active/1/true, paid -> paid/P/1/true, high priority -> H/high/3, laki-laki/pria/male -> L/M/male, perempuan/wanita/female -> P/F/female when those values are present
 - If safe inspection is not allowed and the request is ambiguous, ask clarify
 - If a numeric/date threshold is subjective or missing, ask clarify instead of inventing a cutoff
+- Do not ask for clarification for duplicate/same-value checks when the target column is clear
 - Never ask for arbitrary row samples
 - Never expose or request PII
 - If the user explicitly asks to insert dummy, sample, test, seed, or fake data, generate a valid mutating SQL statement with clearly synthetic values

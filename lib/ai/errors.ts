@@ -28,7 +28,7 @@ export function normalizeAIError(err: unknown, provider: string): Error {
   if (status !== undefined) {
     const description = STATUS_MESSAGES[status];
     if (description) {
-      return new Error(`[${provider}] ${description} (HTTP ${status})`);
+      return new Error(`[${provider}] ${description}: ${originalMessage} (HTTP ${status})`);
     }
     return new Error(`[${provider}] HTTP ${status}: ${originalMessage}`);
   }
