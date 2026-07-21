@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import {
   ConnectionConfig, Schema, QueryHistoryItem, QueryType,
-  QueryResult as QueryResultType, PageSize, DEFAULT_PAGE_SIZE,
+  QueryResult as QueryResultType, PageSize, DEFAULT_PAGE_SIZE, AgentStreamEvent,
 } from "@/types";
 import { getLimitValue, stripLimitOffset, classifyQueryType, applyOrderBy } from "@/lib/db/execute";
 import ConnectionForm from "@/components/ConnectionForm";
@@ -22,17 +22,19 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import Image from "next/image";
-import { LogOut, Terminal, Upload, GitBranch, Clock } from "lucide-react";
+import { LogOut, Terminal, Upload, GitBranch, Clock, Wrench } from "lucide-react";
 
 type AppState =
   | { kind: "idle" }
   | { kind: "loading" }
   | { kind: "executing" }
+  | { kind: "agent_planning"; events: AgentStreamEvent[] }
   | { kind: "pagination_confirm"; baseSql: string }
   | { kind: "select_result"; baseSql: string; result: QueryResultType; page: number; pageSize: number; paginated: boolean; pageLoading: boolean; analysis?: string; analyzeLoading?: boolean; analyzeError?: string }
   | { kind: "mutation_preview"; sql: string; queryType: QueryType; preview: { rowsAffected: number; previewRows?: Record<string, unknown>[] } | null; previewLoading: boolean; commitLoading: boolean; error?: string }
   | { kind: "mutation_done"; sql: string; queryType: QueryType; rowsAffected: number }
-  | { kind: "error"; message: string };
+  | { kind: "repairing"; failedSql: string; errorMessage: string; events: AgentStreamEvent[] }
+  | { kind: "error"; message: string; failedSql?: string };
 
 const SESSION_KEY      = "vibeql_session";
 const HISTORY_KEY      = "vibeql_history";
@@ -59,6 +61,23 @@ function clearSession() {
     sessionStorage.removeItem(HISTORY_KEY);
     sessionStorage.removeItem(ERD_KEY);
   } catch { /* ignore */ }
+}
+
+function agentEventMessage(event: AgentStreamEvent): string {
+  switch (event.type) {
+    case "status":
+      return event.message;
+    case "tool_call":
+      return `Checking safe distinct values for ${event.table}.${event.column}.`;
+    case "tool_result":
+      return event.summary;
+    case "clarify":
+      return event.question;
+    case "final_sql":
+      return "SQL is ready.";
+    case "error":
+      return event.error;
+  }
 }
 
 export default function Home() {
@@ -114,6 +133,7 @@ export default function Home() {
   const [erdMermaid, setErdMermaid] = useState<string | null>(null);
   const [erdLoading, setErdLoading] = useState(false);
   const [erdError, setErdError] = useState<string | null>(null);
+  const [schemaRefreshing, setSchemaRefreshing] = useState(false);
 
   function resetState() {
     setAppState({ kind: "idle" });
@@ -126,6 +146,7 @@ export default function Home() {
     setErdMermaid(null);
     setErdLoading(false);
     setErdError(null);
+    setSchemaRefreshing(false);
   }
 
   // Keep history in sync with sessionStorage (skip until mount effect finishes)
@@ -170,7 +191,7 @@ export default function Home() {
     });
     const data = await res.json();
     if (data.error) {
-      setAppState({ kind: "error", message: data.error });
+      setAppState({ kind: "error", message: data.error, failedSql: baseSql });
       return;
     }
     setAppState({ kind: "select_result", baseSql, result: data, page, pageSize: size, paginated: true, pageLoading: false });
@@ -187,7 +208,7 @@ export default function Home() {
     });
     const data = await res.json();
     if (data.error) {
-      setAppState({ kind: "error", message: data.error });
+      setAppState({ kind: "error", message: data.error, failedSql: sql });
       return;
     }
     setAppState({ kind: "select_result", baseSql: sql, result: data, page: 0, pageSize, paginated: false, pageLoading: false });
@@ -212,6 +233,11 @@ export default function Home() {
         await runDirectSelect(sql, prompt);
       }
     } else {
+      if (queryType === "DDL") {
+        setAppState({ kind: "mutation_preview", sql, queryType, preview: null, previewLoading: false, commitLoading: false });
+        return;
+      }
+
       setAppState({ kind: "mutation_preview", sql, queryType, preview: null, previewLoading: true, commitLoading: false });
 
       const mRes = await fetch("/api/mutate", {
@@ -232,20 +258,59 @@ export default function Home() {
   async function handlePrompt(prompt: string) {
     if (!schema || !connectionConfig) return;
     setCurrentPrompt(prompt);
-    setAppState({ kind: "loading" });
+    setAppState({ kind: "agent_planning", events: [] });
 
     try {
-      const genRes = await fetch("/api/generate", {
+      const genRes = await fetch("/api/agent-query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, schema, pageSize, dbSchema: currentDbSchema, dialect: connectionConfig.dialect }),
+        body: JSON.stringify({ prompt, schema, connectionConfig, pageSize, dbSchema: currentDbSchema, dialect: connectionConfig.dialect }),
       });
-      const genData = await genRes.json();
-      if (genData.error) {
-        setAppState({ kind: "error", message: genData.error });
+
+      if (!genRes.ok || !genRes.body) {
+        const genData = await genRes.json().catch(() => null);
+        setAppState({ kind: "error", message: genData?.error ?? "Failed to plan query" });
         return;
       }
-      await processSQL(genData.sql, prompt);
+
+      const reader = genRes.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const event = JSON.parse(line) as AgentStreamEvent;
+          setAppState((state) =>
+            state.kind === "agent_planning"
+              ? { ...state, events: [...state.events, event] }
+              : state
+          );
+
+          if (event.type === "error") {
+            setAppState({ kind: "error", message: event.error });
+            return;
+          }
+
+          if (event.type === "clarify") {
+            setAppState({ kind: "error", message: event.question });
+            return;
+          }
+
+          if (event.type === "final_sql") {
+            await processSQL(event.sql, prompt);
+            return;
+          }
+        }
+      }
+
+      setAppState({ kind: "error", message: "Agent ended without returning SQL" });
     } catch (err) {
       setAppState({ kind: "error", message: err instanceof Error ? err.message : "Unexpected error" });
     }
@@ -258,6 +323,68 @@ export default function Home() {
       await processSQL(sql, currentPrompt);
     } catch (err) {
       setAppState({ kind: "error", message: err instanceof Error ? err.message : "Unexpected error" });
+    }
+  }
+
+  async function handleRepair(failedSql: string, errorMessage: string) {
+    if (!schema || !connectionConfig) return;
+    setAppState({ kind: "repairing", failedSql, errorMessage, events: [] });
+
+    try {
+      const res = await fetch("/api/repair", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          originalPrompt: currentPrompt,
+          failedSql,
+          errorMessage,
+          schema,
+          dbSchema: currentDbSchema,
+          dialect: connectionConfig.dialect,
+        }),
+      });
+
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => null);
+        setAppState({ kind: "error", message: data?.error ?? "Repair failed", failedSql });
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const event = JSON.parse(line) as AgentStreamEvent;
+          setAppState((state) =>
+            state.kind === "repairing"
+              ? { ...state, events: [...state.events, event] }
+              : state
+          );
+
+          if (event.type === "error") {
+            setAppState({ kind: "error", message: event.error, failedSql });
+            return;
+          }
+
+          if (event.type === "final_sql") {
+            await processSQL(event.sql, currentPrompt);
+            return;
+          }
+        }
+      }
+
+      setAppState({ kind: "error", message: "Repair ended without returning SQL", failedSql });
+    } catch (err) {
+      setAppState({ kind: "error", message: err instanceof Error ? err.message : "Repair failed", failedSql });
     }
   }
 
@@ -353,22 +480,25 @@ export default function Home() {
     }
   }
 
-  function refreshSchema(schemaName = currentDbSchema) {
+  async function refreshSchema(schemaName = currentDbSchema) {
     if (!connectionConfig) return;
-    fetch("/api/schema", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ connectionConfig, schemaName }),
-    })
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.schema) {
-          setSchema(d.schema);
-          setErdMermaid(null);
-          setErdError(null);
-          if (connectionConfig) saveSession(connectionConfig, d.schema, dbSchemas, schemaName);
-        }
+    setSchemaRefreshing(true);
+    try {
+      const res = await fetch("/api/schema", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ connectionConfig, schemaName }),
       });
+      const data = await res.json();
+      if (data.schema) {
+        setSchema(data.schema);
+        setErdMermaid(null);
+        setErdError(null);
+        saveSession(connectionConfig, data.schema, dbSchemas, schemaName);
+      }
+    } finally {
+      setSchemaRefreshing(false);
+    }
   }
 
   async function handleDbSchemaChange(schemaName: string) {
@@ -481,6 +611,8 @@ export default function Home() {
           dbSchemas={dbSchemas}
           currentDbSchema={currentDbSchema}
           onDbSchemaChange={handleDbSchemaChange}
+          onRefresh={() => refreshSchema()}
+          refreshing={schemaRefreshing}
         />
         {/* Drag handle */}
         <div
@@ -534,8 +666,8 @@ export default function Home() {
           <TabsContent value="query" className="flex-1 overflow-auto p-4 space-y-4 mt-0">
             <PromptInput
               onSubmit={handlePrompt}
-              loading={appState.kind === "loading" || appState.kind === "executing"}
-              loadingLabel={appState.kind === "executing" ? "Running..." : "Generating..."}
+              loading={appState.kind === "loading" || appState.kind === "executing" || appState.kind === "repairing" || appState.kind === "agent_planning"}
+              loadingLabel={appState.kind === "repairing" ? "Repairing..." : appState.kind === "executing" ? "Running..." : appState.kind === "agent_planning" ? "Planning..." : "Generating..."}
               value={currentPrompt}
               onChange={setCurrentPrompt}
             />
@@ -552,13 +684,63 @@ export default function Home() {
               <p className="text-sm text-muted-foreground animate-pulse">Generating SQL...</p>
             )}
 
+            {appState.kind === "agent_planning" && (
+              <div className="space-y-3 rounded-md border bg-muted/30 px-4 py-3">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Terminal className="h-4 w-4" />
+                  Planning Query
+                </div>
+                <div className="space-y-1 text-sm text-muted-foreground">
+                  {appState.events.length === 0 && (
+                    <p className="animate-pulse">Starting planner...</p>
+                  )}
+                  {appState.events.map((event, index) => (
+                    <p key={index}>{agentEventMessage(event)}</p>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {appState.kind === "executing" && (
               <p className="text-sm text-muted-foreground animate-pulse">Running query...</p>
             )}
 
+            {appState.kind === "repairing" && (
+              <div className="space-y-3 rounded-md border bg-muted/30 px-4 py-3">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Wrench className="h-4 w-4" />
+                  Repairing SQL
+                </div>
+                <div className="space-y-1 text-sm text-muted-foreground">
+                  {appState.events.length === 0 && (
+                    <p className="animate-pulse">Starting repair...</p>
+                  )}
+                  {appState.events.map((event, index) => (
+                    <p key={index}>{agentEventMessage(event)}</p>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {appState.kind === "error" && (
               <Alert variant="destructive">
-                <AlertDescription>{appState.message}</AlertDescription>
+                <AlertDescription>
+                  <div className="space-y-2">
+                    <p>{appState.message}</p>
+                    {appState.failedSql && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="gap-2"
+                        onClick={() => handleRepair(appState.failedSql!, appState.message)}
+                      >
+                        <Wrench className="h-3.5 w-3.5" />
+                        Repair SQL
+                      </Button>
+                    )}
+                  </div>
+                </AlertDescription>
               </Alert>
             )}
 
@@ -601,6 +783,8 @@ export default function Home() {
                 onCancel={handleCancel}
                 loading={appState.commitLoading || appState.previewLoading}
                 error={appState.error}
+                onRepair={appState.error ? handleRepair : undefined}
+                onRerun={handleRerun}
               />
             )}
 

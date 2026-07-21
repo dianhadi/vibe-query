@@ -26,6 +26,93 @@ Rules:
 - ${explainNote}`;
 }
 
+export function buildRepairSystemPrompt(
+  schemaText: string,
+  dbSchema = "public",
+  dialect: Dialect = "postgresql"
+): string {
+  const dbName = dialect === "mysql" ? "MySQL" : "PostgreSQL";
+  const schemaRule = dialect === "mysql"
+    ? `- Only generate queries for the '${dbSchema}' database — do not reference tables in other databases`
+    : `- Only generate queries for the '${dbSchema}' schema — do not reference tables in other schemas`;
+  const identifierRule = dialect === "mysql"
+    ? "- Use backtick quoting for identifiers when needed"
+    : "- Use double-quote quoting for identifiers when needed";
+
+  return `You are a ${dbName} SQL repair assistant.
+The user will provide an original natural language request, a SQL statement that failed, and the database error.
+Your job is to repair the SQL using only the provided schema and error.
+
+Rules:
+- Output exactly one valid ${dbName} SQL statement
+- No markdown, no explanation — just the SQL
+- Preserve the original user intent and query category
+- Do not invent tables or columns that are not in the schema
+- ${schemaRule}
+- ${identifierRule}
+- Do not add row-level data values unless they already appear in the failed SQL or user request
+- Exception: if the original request is explicitly for dummy, sample, test, seed, or fake data, you may generate clearly synthetic values to repair the statement
+- Synthetic personal-like values must be obviously fake; prefer example.com emails, 555-0100 style phone numbers, fake names like Test User, and placeholder addresses
+- Do not turn a read query into a mutating query
+- If the original request explicitly asks for DDL or destructive SQL such as DROP, ALTER, or TRUNCATE, you may repair that same category of SQL
+- Do not refuse explicit DDL solely because it is destructive; the app requires typed confirmation before execution
+
+Current schema:
+${schemaText}`;
+}
+
+export function buildAgentPlanningSystemPrompt(
+  schemaText: string,
+  pageSize?: number,
+  dbSchema = "public",
+  dialect: Dialect = "postgresql"
+): string {
+  const dbName = dialect === "mysql" ? "MySQL" : "PostgreSQL";
+  const schemaRule = dialect === "mysql"
+    ? `Only generate queries for the '${dbSchema}' database.`
+    : `Only generate queries for the '${dbSchema}' schema.`;
+  const paginationRule = pageSize
+    ? `For SELECT queries where the user wants all or many rows and did not mention a specific count, add LIMIT ${pageSize}.`
+    : "If the user wants all or many rows and did not mention a specific count, do not add a LIMIT.";
+
+  return `You are an agentic ${dbName} SQL planner for vibeQL.
+You must choose the next action as strict JSON only. Do not output markdown.
+
+Available actions:
+1. {"action":"final_sql","sql":"..."}
+2. {"action":"inspect_distinct","table":"...","column":"...","reason":"..."}
+3. {"action":"clarify","question":"..."}
+4. {"action":"refuse","reason":"..."}
+
+Use inspect_distinct when a user's categorical value is ambiguous and checking safe distinct values would help.
+Examples: gender/sex fields, status fields, boolean flags, type/category/role fields, source/channel fields, priority fields, payment/order/shipment state fields, approval/review stages, and other enum-like columns.
+Do not request distinct values for names, emails, phone numbers, addresses, IDs, notes, descriptions, comments, messages, secrets, or free-text fields.
+For filters on categorical columns expressed in natural language, you MUST inspect_distinct on the matching safe categorical column before final_sql unless tool observations already include that column's values or the user gave an exact stored code.
+Do not assume natural language labels are stored literally; common database values may be codes, abbreviations, numbers, English labels, localized labels, or booleans.
+This applies broadly, for example active/inactive status, paid/unpaid payment state, approved/rejected review state, high/low priority, online/offline channel, internal/external type, and gender/sex labels.
+
+Rules:
+- Return one JSON object and nothing else
+- ${schemaRule}
+- ${paginationRule}
+- Always preserve user intent
+- Use only tables and columns from the schema
+- If a tool observation resolves ambiguity, use it in final_sql
+- When tool observations show categorical values, map natural language intent to the stored value before final_sql, for example active -> A/active/1/true, paid -> paid/P/1/true, high priority -> H/high/3, laki-laki/pria/male -> L/M/male, perempuan/wanita/female -> P/F/female when those values are present
+- If safe inspection is not allowed and the request is ambiguous, ask clarify
+- Never ask for arbitrary row samples
+- Never expose or request PII
+- If the user explicitly asks to insert dummy, sample, test, seed, or fake data, generate a valid mutating SQL statement with clearly synthetic values
+- Synthetic personal-like values must be obviously fake; prefer example.com emails, 555-0100 style phone numbers, fake names like Test User, and placeholder addresses
+- Do not refuse dummy/test data insertion solely because the values are arbitrary; the app will still require mutation preview and explicit commit
+- If the user explicitly asks for DDL or destructive SQL such as DROP TABLE, ALTER TABLE, CREATE TABLE, or TRUNCATE, return the correct SQL as final_sql
+- Do not refuse explicit DDL solely because it is destructive; the app will show the SQL and require typed CONFIRM before execution
+- For mutating queries, be conservative and precise
+
+Current schema:
+${schemaText}`;
+}
+
 export function buildERDSystemPrompt(dialect: Dialect = "postgresql"): string {
   const dbName = dialect === "mysql" ? "MySQL" : "PostgreSQL";
   return `You are a database schema expert.
@@ -68,6 +155,10 @@ Rules:
 - Use the schema provided to reference correct table and column names
 - ${schemaRule}
 - If the user's request is ambiguous, make a reasonable assumption
+- If the user explicitly asks to insert dummy, sample, test, seed, or fake data, generate clearly synthetic values and a valid mutating SQL statement
+- Synthetic personal-like values must be obviously fake; prefer example.com emails, 555-0100 style phone numbers, fake names like Test User, and placeholder addresses
+- If the user explicitly asks for DDL or destructive SQL such as DROP TABLE, ALTER TABLE, CREATE TABLE, or TRUNCATE, generate the requested SQL
+- Do not refuse explicit DDL solely because it is destructive; the app will require typed confirmation before execution
 - For mutating queries, be conservative and precise${identifierRule}
 ${paginationRule}
 

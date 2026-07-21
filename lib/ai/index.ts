@@ -1,6 +1,6 @@
 import { Schema } from "@/types";
 import { Dialect } from "@/lib/db/dialect";
-import { buildSystemPrompt, buildERDSystemPrompt, buildAnalyzeSystemPrompt } from "./prompts";
+import { buildSystemPrompt, buildERDSystemPrompt, buildAnalyzeSystemPrompt, buildRepairSystemPrompt, buildAgentPlanningSystemPrompt } from "./prompts";
 import { schemaToString } from "@/lib/db/introspect";
 import { AIAdapter } from "./adapters/types";
 import { AnthropicAdapter } from "./adapters/anthropic";
@@ -96,6 +96,41 @@ function cleanSQL(raw: string): string {
     .trim();
 }
 
+export type AgentPlanningAction =
+  | { action: "final_sql"; sql: string }
+  | { action: "inspect_distinct"; table: string; column: string; reason: string }
+  | { action: "clarify"; question: string }
+  | { action: "refuse"; reason: string };
+
+function parsePlanningAction(raw: string): AgentPlanningAction {
+  const cleaned = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
+  const parsed = JSON.parse(cleaned) as Partial<AgentPlanningAction>;
+
+  if (parsed.action === "final_sql" && typeof parsed.sql === "string" && parsed.sql.trim()) {
+    return { action: "final_sql", sql: cleanSQL(parsed.sql) };
+  }
+  if (
+    parsed.action === "inspect_distinct" &&
+    typeof parsed.table === "string" &&
+    typeof parsed.column === "string" &&
+    typeof parsed.reason === "string"
+  ) {
+    return { action: "inspect_distinct", table: parsed.table, column: parsed.column, reason: parsed.reason };
+  }
+  if (parsed.action === "clarify" && typeof parsed.question === "string" && parsed.question.trim()) {
+    return { action: "clarify", question: parsed.question.trim() };
+  }
+  if (parsed.action === "refuse" && typeof parsed.reason === "string" && parsed.reason.trim()) {
+    return { action: "refuse", reason: parsed.reason.trim() };
+  }
+
+  throw new Error("AI returned an invalid planning action");
+}
+
 export async function generateSQL(
   prompt: string,
   schema: Schema,
@@ -107,5 +142,40 @@ export async function generateSQL(
   const systemPrompt = buildSystemPrompt(schemaToString(schema, dbSchema, dialect), pageSize, dbSchema, dialect);
   logAICall("generateSQL", prompt);
   const raw = await adapter.generateSQL(systemPrompt, prompt);
+  return cleanSQL(raw);
+}
+
+export async function planQueryAction(
+  prompt: string,
+  schema: Schema,
+  observations: string[],
+  pageSize?: number,
+  dbSchema = "public",
+  dialect: Dialect = "postgresql"
+): Promise<AgentPlanningAction> {
+  const adapter = createAdapter();
+  const systemPrompt = buildAgentPlanningSystemPrompt(schemaToString(schema, dbSchema, dialect), pageSize, dbSchema, dialect);
+  const userPrompt = [
+    `User request:\n${prompt}`,
+    observations.length > 0 ? `Tool observations:\n${observations.join("\n")}` : "Tool observations: none",
+  ].join("\n\n");
+  logAICall("planQueryAction", prompt);
+  const raw = await adapter.generateSQL(systemPrompt, userPrompt);
+  return parsePlanningAction(raw);
+}
+
+export async function repairSQL(
+  originalPrompt: string,
+  failedSql: string,
+  errorMessage: string,
+  schema: Schema,
+  dbSchema = "public",
+  dialect: Dialect = "postgresql"
+): Promise<string> {
+  const adapter = createAdapter();
+  const systemPrompt = buildRepairSystemPrompt(schemaToString(schema, dbSchema, dialect), dbSchema, dialect);
+  const userPrompt = `Original request:\n${originalPrompt || "(not available)"}\n\nFailed SQL:\n\`\`\`sql\n${failedSql}\n\`\`\`\n\nDatabase error:\n${errorMessage}`;
+  logAICall("repairSQL", failedSql);
+  const raw = await adapter.generateSQL(systemPrompt, userPrompt);
   return cleanSQL(raw);
 }

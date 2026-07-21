@@ -46,6 +46,14 @@ export interface GenerateResult {
   queryType: QueryType;
 }
 
+export type AgentStreamEvent =
+  | { type: "status"; message: string }
+  | { type: "tool_call"; tool: "inspect_distinct"; table: string; column: string }
+  | { type: "tool_result"; tool: "inspect_distinct"; summary: string }
+  | { type: "clarify"; question: string }
+  | { type: "final_sql"; sql: string; queryType: QueryType }
+  | { type: "error"; error: string };
+
 export interface MutationPreview {
   rowsAffected: number;
   previewRows?: Record<string, unknown>[];

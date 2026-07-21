@@ -205,6 +205,211 @@ PromptInput -> /api/agent-query streaming
 
 This keeps the execution safety logic mostly unchanged.
 
+Current implementation status:
+
+- M1 Query Repair Agent is implemented through `/api/repair`.
+- M2 Query Planning Agent is implemented through `/api/agent-query`.
+- `/api/agent-query` can stream planner status, call the internal `inspect_distinct` tool, stream sanitized tool summaries, and return `final_sql`.
+- Prompt submission now uses the agent route first; final SQL still flows through existing execution safety gates.
+
+## Additional Agent/Chain Opportunities
+
+Query planning should be the first agentic workflow because it improves correctness before SQL execution and can start with a narrow safe tool. After that, vibeQL can add other bounded chains that reuse the same streaming UI, tool validation, and data-safety policy.
+
+### Schema Understanding Agent
+
+Purpose: build a better working understanding of the connected database before query generation.
+
+Possible capabilities:
+
+- Detect primary domain tables, lookup tables, bridge tables, and audit/log tables.
+- Detect implicit relationships from naming patterns when FK constraints are missing.
+- Identify enum-like columns that are safe candidates for distinct inspection.
+- Summarize table purpose from schema metadata only.
+
+Safe inputs:
+
+- Table names, column names, column types, indexes, PK/FK/UNIQUE metadata.
+- No row-level data.
+
+This should become shared context for query planning, import mapping, and dashboard generation.
+
+### Clarification Agent
+
+Purpose: ask a short question when the prompt is ambiguous and safe tool inspection cannot confidently resolve it.
+
+Example:
+
+```text
+User: tampilkan customer aktif
+Agent: "Aktif" maksudnya status = active, last_login masih baru, atau belum dihapus?
+```
+
+This prevents the model from guessing business semantics that are not present in schema metadata.
+
+### Query Repair Agent
+
+Purpose: fix failed SQL by using the database error, SQL text, dialect, and schema.
+
+Flow:
+
+```text
+Generated SQL -> execute -> DB error -> repair agent -> corrected SQL -> existing processSQL
+```
+
+Guardrails:
+
+- Send schema and error message only.
+- Do not send result rows.
+- Keep repaired SQL visible.
+- Do not bypass mutation preview or DDL confirmation.
+
+This is likely the highest-impact follow-up after query planning.
+
+### Result Explanation Agent
+
+Purpose: explain query results in natural language.
+
+Guardrails:
+
+- Do not send all rows to the model.
+- Prefer aggregate summaries, column metadata, row count, and safe samples only.
+- Apply the same PII detection used by inspection tools before sending any sample values.
+- For sensitive columns, explain structure and counts without exposing values.
+
+This can support "what does this result mean?" without turning the agent into a raw data exfiltration path.
+
+### Performance Tuning Agent
+
+Purpose: extend the existing analyzer into a multi-step workflow.
+
+Flow:
+
+```text
+SQL -> EXPLAIN -> AI analysis -> optional index/rewrite suggestions -> user review
+```
+
+Possible outputs:
+
+- Index recommendations.
+- Query rewrites.
+- Estimated risk or tradeoff.
+- Optional migration SQL, still gated by DDL confirmation.
+
+This can build on the current `/api/analyze` route.
+
+### Import Mapping Agent
+
+Purpose: assist CSV/Excel import setup.
+
+Possible capabilities:
+
+- Infer table names from file/sheet names.
+- Suggest normalized column names.
+- Suggest data types.
+- Detect likely PK/FK columns.
+- Flag likely duplicate or conflicting tables.
+
+Guardrails:
+
+- Prefer headers, inferred types, null rates, uniqueness counts, and format statistics.
+- Avoid sending raw cell values by default.
+- If samples are needed, sanitize and limit them heavily.
+- Treat uploaded files as potentially PII-heavy.
+
+This fits the existing import workflow, but should come after the core guardrails are reusable.
+
+### Data Quality Agent
+
+Purpose: generate safe audit queries for data quality checks.
+
+Examples:
+
+- Duplicate candidate keys.
+- Unexpected nulls.
+- Invalid enum values.
+- Orphan FK-like references.
+- Outlier numeric/date values.
+- Format checks for email/date/UUID-like columns.
+
+The agent should generate SQL and show it to the user. It should not automatically inspect arbitrary problematic rows.
+
+### Dashboard Builder Agent
+
+Purpose: turn a broad analytical prompt into a set of transparent SQL queries and visualizations.
+
+Example:
+
+```text
+buat ringkasan sales bulan ini
+```
+
+Possible output:
+
+- KPI query.
+- Time-series query.
+- Breakdown query.
+- Top-N query.
+- Chart/table layout suggestions.
+
+Guardrails:
+
+- Show every generated SQL query.
+- Run through existing SELECT execution path.
+- Avoid hidden multi-query execution.
+- Apply pagination and expensive-query controls.
+
+This is a larger feature because it touches UX, charting, and multi-query state.
+
+### Migration Assistant Agent
+
+Purpose: help generate schema changes such as indexes, constraints, table changes, or cleanup migrations.
+
+Guardrails:
+
+- Never auto-execute.
+- Always show SQL.
+- Always require typed `CONFIRM` for DDL.
+- Prefer reversible suggestions where possible.
+- Explain expected impact before execution.
+
+### Policy/Permission Agent
+
+Purpose: classify request risk before planning or execution.
+
+Recommended shape:
+
+- Deterministic policy checks first.
+- LLM classification only for ambiguous intent.
+- Possible labels: `safe_read`, `pii_risk`, `mutation`, `ddl`, `expensive_scan`, `cross_schema`, `unsupported`.
+
+This should not replace server-side enforcement. It is an additional decision layer that can improve UX and messaging.
+
+## Suggested Agent Roadmap
+
+Recommended order:
+
+1. Query Repair Agent.
+2. Query Planning Agent with `inspect_distinct`.
+3. Clarification Agent.
+4. Schema Understanding Agent.
+5. Performance Tuning Agent.
+6. Import Mapping Agent.
+7. Result Explanation Agent.
+8. Data Quality Agent.
+9. Dashboard Builder Agent.
+10. Migration Assistant Agent.
+11. Policy/Permission Agent as a shared layer once enough workflows exist.
+
+Rationale:
+
+- Query repair is the smallest safe first agent because it uses SQL, DB error text, and schema only.
+- Query planning and clarification directly improve the core prompt-to-SQL loop after the streaming shell exists.
+- Schema understanding makes later agents more accurate without touching row data.
+- Performance tuning already has a partial foundation.
+- Import mapping and result explanation have higher PII risk, so they should wait until guardrails are mature.
+- Dashboard and migration workflows are valuable but have wider UI and safety blast radius.
+
 ## Implementation Phases
 
 ### Phase 1: Foundations
@@ -258,4 +463,3 @@ This keeps the execution safety logic mostly unchanged.
 - User sees a streaming activity timeline.
 - Final SQL remains visible and goes through existing execution safety gates.
 - Existing non-agent query behavior can remain available as a fallback.
-

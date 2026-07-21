@@ -3,13 +3,17 @@
 import { Schema } from "@/types";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { RefreshCw } from "lucide-react";
 
 interface SchemaExplorerProps {
   schema: Schema;
   dbSchemas: string[];
   currentDbSchema: string;
   onDbSchemaChange: (schema: string) => void;
+  onRefresh?: () => void;
+  refreshing?: boolean;
 }
 
 export default function SchemaExplorer({
@@ -17,25 +21,44 @@ export default function SchemaExplorer({
   dbSchemas,
   currentDbSchema,
   onDbSchemaChange,
+  onRefresh,
+  refreshing = false,
 }: SchemaExplorerProps) {
   return (
     <div className="h-full flex flex-col">
       <div className="px-3 py-2 border-b space-y-2">
-        {dbSchemas.length > 0 && (
-          <Select value={currentDbSchema} onValueChange={onDbSchemaChange}>
-            <SelectTrigger className="h-7 text-xs w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {dbSchemas.map((s) => (
-                <SelectItem key={s} value={s} className="text-xs">
-                  {s}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-        <p className="text-xs text-muted-foreground">{schema.tables.length} tables</p>
+        <div className="flex items-center gap-1.5">
+          {dbSchemas.length > 0 && (
+            <Select value={currentDbSchema} onValueChange={onDbSchemaChange}>
+              <SelectTrigger className="h-7 min-w-0 flex-1 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {dbSchemas.map((s) => (
+                  <SelectItem key={s} value={s} className="text-xs">
+                    {s}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {onRefresh && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              onClick={onRefresh}
+              disabled={refreshing}
+              title="Refresh schema"
+              className="shrink-0"
+            >
+              <RefreshCw className={refreshing ? "animate-spin" : ""} />
+            </Button>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {refreshing ? "Refreshing..." : `${schema.tables.length} tables`}
+        </p>
       </div>
       <ScrollArea className="flex-1">
         <div className="p-2 space-y-1">

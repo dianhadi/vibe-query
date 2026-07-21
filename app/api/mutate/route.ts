@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withClient } from "@/lib/db/client";
-import { executeMutation, executeMutationPreview } from "@/lib/db/execute";
+import { classifyQueryType, executeMutation, executeMutationPreview } from "@/lib/db/execute";
 import { ConnectionConfig } from "@/types";
 
 export async function POST(req: NextRequest) {
@@ -17,6 +17,11 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    const queryType = classifyQueryType(sql);
+    if (!confirmed && queryType === "DDL") {
+      return NextResponse.json({ error: "DDL statements require explicit confirmation and cannot be previewed." }, { status: 400 });
+    }
+
     if (!confirmed) {
       const preview = await withClient(connectionConfig, (client) =>
         executeMutationPreview(client, sql), dbSchema
