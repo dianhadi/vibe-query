@@ -15,9 +15,18 @@ export interface ColumnInfo {
   nullable: boolean;
 }
 
+export interface IndexInfo {
+  name: string;
+  columns: string[];
+  unique: boolean;
+  primary: boolean;
+  definition?: string;
+}
+
 export interface TableInfo {
   name: string;
   columns: ColumnInfo[];
+  indexes?: IndexInfo[];
 }
 
 export interface ForeignKey {
@@ -39,6 +48,21 @@ export interface QueryResult {
   rows: Record<string, unknown>[];
   rowCount: number;
   hasMore?: boolean;
+}
+
+export interface PerformanceSuggestion {
+  kind: "rewrite" | "index";
+  title: string;
+  sql: string;
+  reason: string;
+  risk?: string;
+}
+
+export interface PerformanceAnalysis {
+  summary: string;
+  issues: string[];
+  suggestions: PerformanceSuggestion[];
+  notes?: string[];
 }
 
 export interface GenerateResult {

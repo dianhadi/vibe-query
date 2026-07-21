@@ -1,6 +1,7 @@
-import { Schema } from "@/types";
+import { PerformanceAnalysis, PerformanceSuggestion, Schema } from "@/types";
 import { Dialect } from "@/lib/db/dialect";
 import { schemaProfileToString } from "@/lib/agent/schema-profile";
+import { classifyQueryType } from "@/lib/db/execute";
 import { buildSystemPrompt, buildERDSystemPrompt, buildAnalyzeSystemPrompt, buildRepairSystemPrompt, buildAgentPlanningSystemPrompt } from "./prompts";
 import { schemaToString } from "@/lib/db/introspect";
 import { AIAdapter } from "./adapters/types";
@@ -67,13 +68,60 @@ export async function analyzeQueryPlan(
   sql: string,
   explainText: string,
   dialect: Dialect = "postgresql"
-): Promise<string> {
+): Promise<PerformanceAnalysis> {
   const adapter = createAdapter();
   const systemPrompt = buildAnalyzeSystemPrompt(dialect);
   const explainLabel = dialect === "mysql" ? "EXPLAIN" : "EXPLAIN ANALYZE";
   const userPrompt = `SQL Query:\n\`\`\`sql\n${sql}\n\`\`\`\n\n${explainLabel} output:\n\`\`\`\n${explainText}\n\`\`\``;
   logAICall("analyzeQueryPlan", sql);
-  return adapter.generateSQL(systemPrompt, userPrompt);
+  const raw = await adapter.generateSQL(systemPrompt, userPrompt);
+  return parsePerformanceAnalysis(raw);
+}
+
+function parsePerformanceAnalysis(raw: string): PerformanceAnalysis {
+  const cleaned = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
+  const parsed = JSON.parse(cleaned) as Partial<PerformanceAnalysis>;
+  if (typeof parsed.summary !== "string" || !parsed.summary.trim()) {
+    throw new Error("AI returned an invalid analysis summary");
+  }
+
+  const suggestions = Array.isArray(parsed.suggestions)
+    ? parsed.suggestions.flatMap((item): PerformanceSuggestion[] => {
+        if (!item || typeof item !== "object") return [];
+        const suggestion = item as Partial<PerformanceSuggestion>;
+        if (
+          (suggestion.kind !== "rewrite" && suggestion.kind !== "index") ||
+          typeof suggestion.title !== "string" ||
+          typeof suggestion.sql !== "string" ||
+          typeof suggestion.reason !== "string"
+        ) {
+          return [];
+        }
+
+        const cleanSuggestionSql = cleanSQL(suggestion.sql);
+        if (suggestion.kind === "rewrite" && classifyQueryType(cleanSuggestionSql) !== "SELECT") return [];
+        if (suggestion.kind === "index" && !/^CREATE\s+(UNIQUE\s+)?INDEX\b/i.test(cleanSuggestionSql)) return [];
+
+        return [{
+          kind: suggestion.kind,
+          title: suggestion.title.trim(),
+          sql: cleanSuggestionSql,
+          reason: suggestion.reason.trim(),
+          risk: typeof suggestion.risk === "string" ? suggestion.risk.trim() : undefined,
+        }];
+      })
+    : [];
+
+  return {
+    summary: parsed.summary.trim(),
+    issues: Array.isArray(parsed.issues) ? parsed.issues.filter((issue): issue is string => typeof issue === "string") : [],
+    suggestions,
+    notes: Array.isArray(parsed.notes) ? parsed.notes.filter((note): note is string => typeof note === "string") : undefined,
+  };
 }
 
 export async function generateERD(

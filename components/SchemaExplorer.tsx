@@ -5,7 +5,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { RefreshCw } from "lucide-react";
+import { Database, RefreshCw } from "lucide-react";
 
 interface SchemaExplorerProps {
   schema: Schema;
@@ -81,6 +81,32 @@ export default function SchemaExplorer({
                     )}
                   </div>
                 ))}
+                {(table.indexes ?? []).length > 0 && (
+                  <div className="mt-1.5 border-t pt-1">
+                    <div className="px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+                      <Database className="h-3 w-3" />
+                      Indexes
+                    </div>
+                    {(table.indexes ?? []).map((index) => (
+                      <div
+                        key={index.name}
+                        className="px-2 py-0.5 text-xs flex items-center gap-1.5 min-w-0"
+                        title={index.definition ?? `${index.name} (${index.columns.join(", ")})`}
+                      >
+                        <span className="truncate text-foreground/80">{index.name}</span>
+                        {index.primary && (
+                          <Badge variant="secondary" className="shrink-0 text-[9px] px-1 py-0">PK</Badge>
+                        )}
+                        {!index.primary && index.unique && (
+                          <Badge variant="outline" className="shrink-0 text-[9px] px-1 py-0">UNQ</Badge>
+                        )}
+                        <span className="ml-auto truncate text-[10px] text-muted-foreground">
+                          {index.columns.join(", ")}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </details>
           ))}

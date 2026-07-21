@@ -1,6 +1,6 @@
 import { DBClient } from "./client-types";
-import { Schema, TableInfo, ForeignKey } from "@/types";
-import { Dialect } from "./dialect";
+import { Schema, TableInfo, ForeignKey, IndexInfo } from "@/types";
+import { Dialect, quoteIdent } from "./dialect";
 
 export async function listSchemas(client: DBClient, dialect: Dialect = "postgresql"): Promise<string[]> {
   if (dialect === "mysql") {
@@ -55,6 +55,7 @@ async function introspectPgSchema(client: DBClient, schemaName: string): Promise
           type: c.data_type as string,
           nullable: c.is_nullable === "YES",
         })),
+        indexes: await introspectPgIndexes(client, schemaName, t.table_name as string),
       };
     })
   );
@@ -109,6 +110,7 @@ async function introspectMySQLSchema(client: DBClient, schemaName: string): Prom
           type: c.data_type as string,
           nullable: c.is_nullable === "YES",
         })),
+        indexes: await introspectMySQLIndexes(client, t.table_name as string),
       };
     })
   );
@@ -134,6 +136,64 @@ async function introspectMySQLSchema(client: DBClient, schemaName: string): Prom
   return { tables, foreignKeys };
 }
 
+async function introspectPgIndexes(client: DBClient, schemaName: string, tableName: string): Promise<IndexInfo[]> {
+  const res = await client.query(
+    `SELECT
+       i.relname AS index_name,
+       ix.indisunique AS is_unique,
+       ix.indisprimary AS is_primary,
+       pg_get_indexdef(i.oid) AS definition,
+       ARRAY(
+         SELECT pg_get_indexdef(i.oid, n, true)
+         FROM generate_series(1, ix.indnkeyatts) AS n
+         ORDER BY n
+       ) AS columns
+     FROM pg_class t
+     JOIN pg_namespace ns ON ns.oid = t.relnamespace
+     JOIN pg_index ix ON t.oid = ix.indrelid
+     JOIN pg_class i ON i.oid = ix.indexrelid
+     WHERE ns.nspname = $1 AND t.relname = $2
+     ORDER BY ix.indisprimary DESC, i.relname`,
+    [schemaName, tableName]
+  );
+
+  return res.rows.map((row) => ({
+    name: row.index_name as string,
+    columns: Array.isArray(row.columns) ? row.columns.map(String) : [],
+    unique: Boolean(row.is_unique),
+    primary: Boolean(row.is_primary),
+    definition: row.definition as string,
+  }));
+}
+
+async function introspectMySQLIndexes(client: DBClient, tableName: string): Promise<IndexInfo[]> {
+  const res = await client.query(`SHOW INDEX FROM ${quoteIdent(tableName, "mysql")}`);
+  const byName = new Map<string, IndexInfo & { seq: Map<string, number> }>();
+
+  for (const row of res.rows) {
+    const name = String(row.Key_name ?? row.key_name ?? "");
+    const column = String(row.Column_name ?? row.column_name ?? "");
+    const seq = Number(row.Seq_in_index ?? row.seq_in_index ?? 0);
+    if (!name || !column) continue;
+
+    const existing = byName.get(name) ?? {
+      name,
+      columns: [],
+      unique: Number(row.Non_unique ?? row.non_unique ?? 1) === 0,
+      primary: name === "PRIMARY",
+      seq: new Map<string, number>(),
+    };
+    existing.columns.push(column);
+    existing.seq.set(column, seq);
+    byName.set(name, existing);
+  }
+
+  return Array.from(byName.values()).map(({ seq, ...index }) => ({
+    ...index,
+    columns: index.columns.sort((a, b) => (seq.get(a) ?? 0) - (seq.get(b) ?? 0)),
+  }));
+}
+
 export function schemaToString(schema: Schema, schemaName = "public", dialect: Dialect = "postgresql"): string {
   const label = dialect === "mysql" ? "MySQL database" : "PostgreSQL schema";
   const lines: string[] = [`${label}: ${schemaName}`];
@@ -141,6 +201,13 @@ export function schemaToString(schema: Schema, schemaName = "public", dialect: D
     lines.push(`Table: ${table.name}`);
     for (const col of table.columns) {
       lines.push(`  - ${col.name} (${col.type})${col.nullable ? "" : " NOT NULL"}`);
+    }
+    if (table.indexes && table.indexes.length > 0) {
+      lines.push("  Indexes:");
+      for (const index of table.indexes) {
+        const markers = [index.primary ? "PRIMARY" : null, index.unique ? "UNIQUE" : null].filter(Boolean).join(" ");
+        lines.push(`    - ${index.name} (${index.columns.join(", ")})${markers ? ` ${markers}` : ""}`);
+      }
     }
   }
   if (schema.foreignKeys.length > 0) {

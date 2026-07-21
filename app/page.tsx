@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import {
   ConnectionConfig, Schema, QueryHistoryItem, QueryType,
-  QueryResult as QueryResultType, PageSize, DEFAULT_PAGE_SIZE, AgentStreamEvent,
+  QueryResult as QueryResultType, PageSize, DEFAULT_PAGE_SIZE, AgentStreamEvent, PerformanceAnalysis,
 } from "@/types";
 import { getLimitValue, stripLimitOffset, classifyQueryType, applyOrderBy } from "@/lib/db/execute";
 import ConnectionForm from "@/components/ConnectionForm";
@@ -32,7 +32,7 @@ type AppState =
   | { kind: "agent_planning"; events: AgentStreamEvent[] }
   | { kind: "clarify"; question: string; planningPrompt: string; displayPrompt: string; events: AgentStreamEvent[] }
   | { kind: "pagination_confirm"; baseSql: string }
-  | { kind: "select_result"; baseSql: string; result: QueryResultType; page: number; pageSize: number; paginated: boolean; pageLoading: boolean; analysis?: string; analyzeLoading?: boolean; analyzeError?: string }
+  | { kind: "select_result"; baseSql: string; result: QueryResultType; page: number; pageSize: number; paginated: boolean; pageLoading: boolean; analysis?: PerformanceAnalysis; analyzeLoading?: boolean; analyzeError?: string }
   | { kind: "mutation_preview"; sql: string; queryType: QueryType; preview: { rowsAffected: number; previewRows?: Record<string, unknown>[] } | null; previewLoading: boolean; commitLoading: boolean; error?: string }
   | { kind: "mutation_done"; sql: string; queryType: QueryType; rowsAffected: number }
   | { kind: "repairing"; failedSql: string; errorMessage: string; events: AgentStreamEvent[] }

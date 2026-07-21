@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { QueryResult as QueryResultType, PAGE_SIZES, PageSize } from "@/types";
+import { PerformanceAnalysis, QueryResult as QueryResultType, PAGE_SIZES, PageSize } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -14,7 +14,6 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import ReactMarkdown from "react-markdown";
 import {
   ChevronLeft,
   ChevronRight,
@@ -28,6 +27,7 @@ import {
   ArrowDown,
   ArrowUpDown,
   FileDown,
+  Database,
 } from "lucide-react";
 import Papa from "papaparse";
 import {
@@ -52,7 +52,7 @@ interface QueryResultProps {
   sortCol?: string | null;
   sortDir?: SortDir;
   onAnalyze?: (sql: string) => void;
-  analysis?: string | null;
+  analysis?: PerformanceAnalysis | null;
   analyzeLoading?: boolean;
   analyzeError?: string | null;
 }
@@ -252,12 +252,65 @@ export default function QueryResult({
             <span className="text-xs font-medium">Query Analysis</span>
             <Badge variant="secondary" className="text-xs">EXPLAIN ANALYZE</Badge>
           </div>
-          <div className="px-4 py-3 prose prose-sm max-w-none text-sm
-            [&_h2]:text-sm [&_h2]:font-semibold [&_h2]:mt-3 [&_h2]:mb-1
-            [&_ul]:my-1 [&_li]:my-0.5
-            [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-xs
-            [&_pre]:bg-muted [&_pre]:p-2 [&_pre]:rounded [&_pre]:overflow-x-auto [&_pre]:text-xs">
-            <ReactMarkdown>{analysis}</ReactMarkdown>
+          <div className="space-y-4 px-4 py-3 text-sm">
+            <p>{analysis.summary}</p>
+            {analysis.issues.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">Issues</p>
+                <ul className="list-disc pl-5 text-muted-foreground">
+                  {analysis.issues.map((issue, index) => (
+                    <li key={index}>{issue}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {analysis.suggestions.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">Suggestions</p>
+                {analysis.suggestions.map((suggestion, index) => (
+                  <div key={index} className="rounded-md border bg-background overflow-hidden">
+                    <div className="flex items-center justify-between gap-2 border-b bg-muted/50 px-3 py-2">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <Badge variant={suggestion.kind === "index" ? "default" : "secondary"} className="text-xs">
+                          {suggestion.kind === "index" ? "Index" : "Rewrite"}
+                        </Badge>
+                        <span className="truncate text-xs font-medium">{suggestion.title}</span>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 shrink-0 gap-1 px-2 text-xs"
+                        onClick={() => onRerun?.(suggestion.sql)}
+                        disabled={!onRerun}
+                      >
+                        {suggestion.kind === "index" ? <Database className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                        {suggestion.kind === "index" ? "Apply Index" : "Try Query"}
+                      </Button>
+                    </div>
+                    <div className="space-y-2 px-3 py-2">
+                      <p className="text-xs text-muted-foreground">{suggestion.reason}</p>
+                      {suggestion.risk && (
+                        <p className="text-xs text-amber-700 dark:text-amber-300">Risk: {suggestion.risk}</p>
+                      )}
+                      <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded bg-muted px-3 py-2 font-mono text-xs">
+                        {suggestion.sql}
+                      </pre>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {analysis.notes && analysis.notes.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">Notes</p>
+                <ul className="list-disc pl-5 text-muted-foreground">
+                  {analysis.notes.map((note, index) => (
+                    <li key={index}>{note}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         </div>
       )}
