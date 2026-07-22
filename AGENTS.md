@@ -95,7 +95,8 @@ SELECT * FROM (<baseSql>) AS _vq LIMIT <pageSize+1> OFFSET <page*pageSize>
 Relevant env vars:
 
 - `AI_PROVIDER`: `anthropic`, `openai`, `gemini`, or `ollama`
-- `AI_MODEL`: optional model override
+- `ANTHROPIC_MODEL`, `OPENAI_MODEL`, `GEMINI_MODEL`, `OLLAMA_MODEL`: optional provider-specific model overrides
+- `AI_MODEL`: legacy fallback model override when the provider-specific env var is not set
 - `ANTHROPIC_API_KEY`
 - `OPENAI_API_KEY`
 - `OPENAI_BASE_URL`

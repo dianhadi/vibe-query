@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getActiveProvider, setActiveProvider } from "@/lib/ai/provider-store";
+import { getModelEnvName, resolveAIModel } from "@/lib/ai/models";
 
 export interface ProviderInfo {
   id: string;
@@ -12,17 +13,16 @@ export interface ProviderInfo {
 interface ProviderDef {
   id: string;
   label: string;
-  description: string;
   /** Env var that must be set for this provider to be available */
   requiredEnv: string;
   requiredEnvLabel: string;
 }
 
 const PROVIDERS: ProviderDef[] = [
-  { id: "anthropic", label: "Anthropic",      description: "Claude Sonnet 4.6",          requiredEnv: "ANTHROPIC_API_KEY", requiredEnvLabel: "ANTHROPIC_API_KEY" },
-  { id: "openai",    label: "OpenAI",          description: "GPT-4o (or custom base URL)", requiredEnv: "OPENAI_API_KEY",    requiredEnvLabel: "OPENAI_API_KEY" },
-  { id: "gemini",    label: "Google Gemini",   description: "Gemini 2.0 Flash",            requiredEnv: "GEMINI_API_KEY",    requiredEnvLabel: "GEMINI_API_KEY" },
-  { id: "ollama",    label: "Ollama",          description: "Local model",                 requiredEnv: "OLLAMA_BASE_URL",   requiredEnvLabel: "OLLAMA_BASE_URL" },
+  { id: "anthropic", label: "Anthropic",      requiredEnv: "ANTHROPIC_API_KEY", requiredEnvLabel: "ANTHROPIC_API_KEY" },
+  { id: "openai",    label: "OpenAI",          requiredEnv: "OPENAI_API_KEY",    requiredEnvLabel: "OPENAI_API_KEY" },
+  { id: "gemini",    label: "Google Gemini",   requiredEnv: "GEMINI_API_KEY",    requiredEnvLabel: "GEMINI_API_KEY" },
+  { id: "ollama",    label: "Ollama",          requiredEnv: "OLLAMA_BASE_URL",   requiredEnvLabel: "OLLAMA_BASE_URL" },
 ];
 
 function isAvailable(p: ProviderDef): boolean {
@@ -34,7 +34,7 @@ export async function GET() {
   const providers: ProviderInfo[] = PROVIDERS.map((p) => ({
     id: p.id,
     label: p.label,
-    description: p.description,
+    description: `${resolveAIModel(p.id)} (${getModelEnvName(p.id)})`,
     available: isAvailable(p),
     requiredEnvLabel: p.requiredEnvLabel,
   }));

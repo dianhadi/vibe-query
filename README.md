@@ -72,11 +72,12 @@ Set `AI_PROVIDER` in `.env.local` to one of the supported values:
 |---|---|---|---|
 | Anthropic Claude | `anthropic` | `claude-sonnet-4-6` | `ANTHROPIC_API_KEY` |
 | OpenAI | `openai` | `gpt-4o` | `OPENAI_API_KEY` |
+| Google Gemini | `gemini` | `gemini-2.0-flash` | `GEMINI_API_KEY` |
 | Ollama (local) | `ollama` | `llama3.2` | — |
 
 Any **OpenAI-compatible API** (Groq, OpenRouter, LM Studio, etc.) also works via the `openai` provider — just set `OPENAI_BASE_URL` to the provider's endpoint.
 
-Override the model for any provider with `AI_MODEL`.
+Override each provider's model with its provider-specific env var: `ANTHROPIC_MODEL`, `OPENAI_MODEL`, `GEMINI_MODEL`, or `OLLAMA_MODEL`. The legacy `AI_MODEL` env var is still accepted as a fallback when the provider-specific model is not set.
 
 > When using Anthropic, [prompt caching](https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching) is enabled automatically — the schema system prompt is cached so repeated queries against the same schema are significantly cheaper and faster.
 
@@ -86,20 +87,27 @@ Override the model for any provider with `AI_MODEL`.
 # Anthropic (default)
 AI_PROVIDER=anthropic
 ANTHROPIC_API_KEY=sk-ant-...
+ANTHROPIC_MODEL=claude-sonnet-4-6
 
 # OpenAI
 AI_PROVIDER=openai
 OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-5-mini
 
 # Groq (OpenAI-compatible)
 AI_PROVIDER=openai
 OPENAI_API_KEY=gsk_...
 OPENAI_BASE_URL=https://api.groq.com/openai/v1
-AI_MODEL=llama-3.3-70b-versatile
+OPENAI_MODEL=llama-3.3-70b-versatile
+
+# Gemini
+AI_PROVIDER=gemini
+GEMINI_API_KEY=...
+GEMINI_MODEL=gemini-2.0-flash
 
 # Ollama (local, no key needed)
 AI_PROVIDER=ollama
-AI_MODEL=llama3.2
+OLLAMA_MODEL=llama3.2
 ```
 
 ---
@@ -261,9 +269,14 @@ vibe-query/
 
 | Variable | Required | Description |
 |---|---|---|
-| `AI_PROVIDER` | No | `anthropic` (default), `openai`, or `ollama` |
-| `AI_MODEL` | No | Override the default model for the selected provider |
+| `AI_PROVIDER` | No | `anthropic` (default), `openai`, `gemini`, or `ollama` |
+| `ANTHROPIC_MODEL` | No | Override Anthropic model |
+| `OPENAI_MODEL` | No | Override OpenAI/OpenAI-compatible model |
+| `GEMINI_MODEL` | No | Override Gemini model |
+| `OLLAMA_MODEL` | No | Override Ollama model |
+| `AI_MODEL` | No | Legacy fallback model override when provider-specific model is not set |
 | `ANTHROPIC_API_KEY` | If `AI_PROVIDER=anthropic` | Anthropic API key |
 | `OPENAI_API_KEY` | If `AI_PROVIDER=openai` | OpenAI (or compatible) API key |
 | `OPENAI_BASE_URL` | No | Override OpenAI base URL (for Groq, OpenRouter, etc.) |
+| `GEMINI_API_KEY` | If `AI_PROVIDER=gemini` | Google Gemini API key |
 | `OLLAMA_BASE_URL` | No | Ollama base URL (default: `http://localhost:11434`) |

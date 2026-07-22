@@ -333,12 +333,16 @@ export default function Home() {
     addHistory({ prompt, sql, queryType: "SELECT", rowCount: data.rowCount });
   }
 
-  async function processSQL(sql: string, prompt: string) {
+  async function processSQL(sql: string, prompt: string, options: { repairPolicyRefusal?: boolean } = {}) {
     setSortCol(null);
     setSortDir("asc");
     // analysis is part of select_result state, cleared naturally when state changes
     const policy = getSQLExecutionPolicy(sql);
     if (policy.action === "refuse") {
+      if (options.repairPolicyRefusal && schema && connectionConfig) {
+        await handleRepair(sql, policy.reason, prompt);
+        return;
+      }
       setAppState({ kind: "error", message: policy.reason, failedSql: sql });
       return;
     }
@@ -442,7 +446,7 @@ export default function Home() {
           }
 
           if (event.type === "final_sql") {
-            await processSQL(event.sql, displayPrompt);
+            await processSQL(event.sql, displayPrompt, { repairPolicyRefusal: true });
             return;
           }
         }
@@ -487,7 +491,7 @@ export default function Home() {
     }
   }
 
-  async function handleRepair(failedSql: string, errorMessage: string) {
+  async function handleRepair(failedSql: string, errorMessage: string, originalPrompt = currentPrompt) {
     if (!schema || !connectionConfig) return;
     setAppState({ kind: "repairing", failedSql, errorMessage, events: [] });
 
@@ -496,7 +500,7 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          originalPrompt: currentPrompt,
+          originalPrompt,
           failedSql,
           errorMessage,
           schema,

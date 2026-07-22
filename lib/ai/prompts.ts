@@ -60,12 +60,15 @@ Rules:
 - The summary field must be a concise user-facing explanation of what changed, at most 20 words
 - No markdown and no extra keys
 - Preserve the original user intent and query category
+- If the failed SQL contains multiple statements for the same batch operation, consolidate them into one statement instead of returning multiple statements
+- For updating multiple known rows with different values, use one UPDATE with CASE expressions and a WHERE clause that limits the affected rows
 - Do not invent tables or columns that are not in the schema
 - ${schemaRule}
 - ${identifierRule}
-- Do not add row-level data values unless they already appear in the failed SQL or user request
+- Do not add row-level data values unless they already appear in the failed SQL or user request, or the user is explicitly replacing placeholder/test data with synthetic values
 - Exception: if the original request is explicitly for dummy, sample, test, seed, or fake data, you may generate clearly synthetic values to repair the statement
-- Synthetic personal-like values must be obviously fake; prefer example.com emails, 555-0100 style phone numbers, fake names like Test User, and placeholder addresses
+- If the user asks for realistic localized placeholder names, generate fictional names that fit the requested locale; do not use or claim actual real people's data
+- Synthetic contact/address values must remain obviously fake; prefer example.com emails, 555-0100 style phone numbers, and placeholder addresses
 - Do not turn a read query into a mutating query
 - If the original request explicitly asks for DDL or destructive SQL such as DROP, ALTER, or TRUNCATE, you may repair that same category of SQL
 - Do not refuse explicit DDL solely because it is destructive; the app requires typed confirmation before execution
@@ -120,6 +123,9 @@ Rules:
 - ${paginationRule}
 - Always preserve user intent
 - Use only tables and columns from the schema
+- Return exactly one SQL statement in final_sql. Do not return multiple semicolon-separated statements.
+- For changes to multiple known rows, use one set-based statement instead of one statement per row.
+- For updating multiple known rows with different values, use one UPDATE with CASE expressions and a WHERE clause that limits the affected rows, for example UPDATE users SET name = CASE id WHEN 1 THEN '...' WHEN 2 THEN '...' END WHERE id IN (1, 2)
 - If a tool observation resolves ambiguity, use it in final_sql
 - When tool observations show categorical values, map natural language intent to the stored value before final_sql, for example active -> A/active/1/true, paid -> paid/P/1/true, high priority -> H/high/3, laki-laki/pria/male -> L/M/male, perempuan/wanita/female -> P/F/female when those values are present
 - If safe inspection is not allowed and the request is ambiguous, ask clarify
@@ -129,7 +135,8 @@ Rules:
 - Never ask for arbitrary row samples
 - Never expose or request PII
 - If the user explicitly asks to insert dummy, sample, test, seed, or fake data, generate a valid mutating SQL statement with clearly synthetic values
-- Synthetic personal-like values must be obviously fake; prefer example.com emails, 555-0100 style phone numbers, fake names like Test User, and placeholder addresses
+- If the user asks to replace placeholder/test names with realistic localized names, generate fictional names that fit the requested locale; do not use or claim actual real people's data
+- Synthetic contact/address values must remain obviously fake; prefer example.com emails, 555-0100 style phone numbers, and placeholder addresses
 - Do not refuse dummy/test data insertion solely because the values are arbitrary; the app will still require mutation preview and explicit commit
 - If the user explicitly asks for DDL or destructive SQL such as DROP TABLE, ALTER TABLE, CREATE TABLE, or TRUNCATE, return the correct SQL as final_sql
 - Do not refuse explicit DDL solely because it is destructive; the app will show the SQL and require typed CONFIRM before execution
@@ -216,11 +223,15 @@ Your job is to generate a single, correct SQL statement.
 Rules:
 - Only output valid ${dbName} SQL
 - No markdown, no explanation — just the SQL
+- Output exactly one SQL statement. Do not output multiple semicolon-separated statements.
 - Use the schema provided to reference correct table and column names
 - ${schemaRule}
 - If the user's request is ambiguous, make a reasonable assumption
+- For changes to multiple known rows, use one set-based statement instead of one statement per row.
+- For updating multiple known rows with different values, use one UPDATE with CASE expressions and a WHERE clause that limits the affected rows, for example UPDATE users SET name = CASE id WHEN 1 THEN '...' WHEN 2 THEN '...' END WHERE id IN (1, 2)
 - If the user explicitly asks to insert dummy, sample, test, seed, or fake data, generate clearly synthetic values and a valid mutating SQL statement
-- Synthetic personal-like values must be obviously fake; prefer example.com emails, 555-0100 style phone numbers, fake names like Test User, and placeholder addresses
+- If the user asks to replace placeholder/test names with realistic localized names, generate fictional names that fit the requested locale; do not use or claim actual real people's data
+- Synthetic contact/address values must remain obviously fake; prefer example.com emails, 555-0100 style phone numbers, and placeholder addresses
 - If the user explicitly asks for DDL or destructive SQL such as DROP TABLE, ALTER TABLE, CREATE TABLE, or TRUNCATE, generate the requested SQL
 - Do not refuse explicit DDL solely because it is destructive; the app will require typed confirmation before execution
 - For mutating queries, be conservative and precise${identifierRule}

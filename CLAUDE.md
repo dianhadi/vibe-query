@@ -318,7 +318,11 @@ Module-level `let` variables are not shared across Next.js API route module inst
 | Variable | Required | Description |
 |---|---|---|
 | `AI_PROVIDER` | No | `anthropic` (default), `openai`, `gemini`, or `ollama` |
-| `AI_MODEL` | No | Override the default model for the active provider |
+| `ANTHROPIC_MODEL` | No | Override Anthropic model |
+| `OPENAI_MODEL` | No | Override OpenAI/OpenAI-compatible model |
+| `GEMINI_MODEL` | No | Override Gemini model |
+| `OLLAMA_MODEL` | No | Override Ollama model |
+| `AI_MODEL` | No | Legacy fallback model override when the provider-specific model is not set |
 | `ANTHROPIC_API_KEY` | If using Anthropic | Anthropic API key |
 | `OPENAI_API_KEY` | If using OpenAI | OpenAI (or compatible) API key |
 | `OPENAI_BASE_URL` | No | Override base URL (Groq, OpenRouter, LM Studio, etc.) |
