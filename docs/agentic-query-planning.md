@@ -223,6 +223,7 @@ Current implementation status:
 - `/api/agent-query` can stream planner status, call the internal `inspect_distinct` tool, stream sanitized tool summaries, and return `final_sql`.
 - Prompt submission now uses the agent route first; final SQL still flows through existing execution safety gates.
 - M3 Clarification fallback is implemented in the query UI: `clarify` events render as an answer form and continue planning with the user's answer.
+- Clarification events can include clickable options. The UI adds a numbered Custom option when custom input is allowed or no options are provided.
 - M4 Repair suggestions are implemented: `/api/repair` returns structured suggested SQL plus a short summary, and the UI asks users to review before running it.
 - M5 Schema Understanding is implemented as deterministic metadata-only profiling. The planner receives hints for sensitive, categorical, date, display, and FK-like columns.
 - M6 Performance Tuning is implemented as structured analysis suggestions. Query rewrites can be tried, and index suggestions can be applied through the existing DDL confirmation flow.

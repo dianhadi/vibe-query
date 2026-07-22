@@ -32,7 +32,7 @@ type AppState =
   | { kind: "loading" }
   | { kind: "executing" }
   | { kind: "agent_planning"; events: AgentStreamEvent[] }
-  | { kind: "clarify"; question: string; planningPrompt: string; displayPrompt: string; events: AgentStreamEvent[] }
+  | { kind: "clarify"; question: string; planningPrompt: string; displayPrompt: string; events: AgentStreamEvent[]; options?: { label: string; value: string; description?: string }[]; allowCustom?: boolean }
   | { kind: "pagination_confirm"; baseSql: string }
   | { kind: "select_result"; baseSql: string; result: QueryResultType; page: number; pageSize: number; paginated: boolean; pageLoading: boolean; analysis?: PerformanceAnalysis; analyzeLoading?: boolean; analyzeError?: string }
   | { kind: "mutation_preview"; sql: string; queryType: QueryType; preview: { rowsAffected: number; previewRows?: Record<string, unknown>[] } | null; previewLoading: boolean; commitLoading: boolean; error?: string }
@@ -211,6 +211,7 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState("query");
   const [currentPrompt, setCurrentPrompt] = useState("");
   const [clarificationAnswer, setClarificationAnswer] = useState("");
+  const [clarificationCustomOpen, setClarificationCustomOpen] = useState(false);
   const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE);
   const [sortCol, setSortCol] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -228,6 +229,7 @@ export default function Home() {
     setActiveTab("query");
     setCurrentPrompt("");
     setClarificationAnswer("");
+    setClarificationCustomOpen(false);
     setPageSize(DEFAULT_PAGE_SIZE);
     setSortCol(null);
     setSortDir("asc");
@@ -254,6 +256,29 @@ export default function Home() {
       else sessionStorage.removeItem(ERD_KEY);
     } catch { /* ignore */ }
   }, [erdMermaid, initializing]);
+
+  useEffect(() => {
+    if (appState.kind !== "clarify" || clarificationCustomOpen) return;
+    const clarifyState = appState;
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (!/^[1-9]$/.test(e.key)) return;
+      const optionIndex = Number(e.key) - 1;
+      const options = clarifyState.options ?? [];
+      const customAvailable = options.length === 0 || clarifyState.allowCustom !== false;
+      const customIndex = customAvailable ? options.length : -1;
+      if (optionIndex < options.length) {
+        e.preventDefault();
+        continueWithClarification(options[optionIndex].value, "selected");
+      } else if (optionIndex === customIndex) {
+        e.preventDefault();
+        setClarificationCustomOpen(true);
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [appState, clarificationCustomOpen]);
 
   function handleConnected(config: ConnectionConfig, s: Schema, schemas: string[]) {
     // For MySQL, dbSchemas is empty; use the database name as the current schema
@@ -358,6 +383,7 @@ export default function Home() {
     const displayPrompt = options.displayPrompt ?? prompt;
     if (options.updateInput !== false) setCurrentPrompt(displayPrompt);
     setClarificationAnswer("");
+    setClarificationCustomOpen(false);
     setAppState({ kind: "agent_planning", events: [] });
 
     try {
@@ -399,12 +425,18 @@ export default function Home() {
           }
 
           if (event.type === "clarify") {
+            if (prompt.includes("Clarification question:")) {
+              setAppState({ kind: "error", message: "Agent asked for clarification again after receiving an answer. Please rephrase with an explicit condition." });
+              return;
+            }
             setAppState((state) => ({
               kind: "clarify",
               question: event.question,
               planningPrompt: prompt,
               displayPrompt,
               events: state.kind === "agent_planning" ? [...state.events, event] : [event],
+              options: event.options,
+              allowCustom: event.allowCustom,
             }));
             return;
           }
@@ -422,17 +454,27 @@ export default function Home() {
     }
   }
 
-  async function handleClarificationSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function continueWithClarification(answer: string, source: "selected" | "custom" = "custom") {
     if (appState.kind !== "clarify") return;
-    const answer = clarificationAnswer.trim();
-    if (!answer) return;
+    const trimmed = answer.trim();
+    if (!trimmed) return;
 
-    const nextPlanningPrompt = `${appState.planningPrompt}\n\nUser clarification: ${answer}`;
+    const answerLabel = source === "selected" ? "User selected answer" : "User custom answer";
+    const nextPlanningPrompt = [
+      appState.planningPrompt,
+      `Clarification question: ${appState.question}`,
+      `${answerLabel}: ${trimmed}`,
+      "Use this clarification as an explicit constraint. Do not ask the same clarification again.",
+    ].join("\n\n");
     await handlePrompt(nextPlanningPrompt, {
       displayPrompt: appState.displayPrompt,
       updateInput: false,
     });
+  }
+
+  async function handleClarificationSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    await continueWithClarification(clarificationAnswer, "custom");
   }
 
   async function handleRerun(sql: string) {
@@ -887,22 +929,61 @@ export default function Home() {
                   </div>
                 )}
                 <p className="text-sm">{appState.question}</p>
-                <form onSubmit={handleClarificationSubmit} className="flex gap-2">
-                  <Input
-                    value={clarificationAnswer}
-                    onChange={(e) => setClarificationAnswer(e.target.value)}
-                    placeholder="Answer the question..."
-                    className="h-8 text-sm"
-                    autoFocus
-                  />
-                  <Button
-                    type="submit"
-                    size="sm"
-                    disabled={!clarificationAnswer.trim()}
-                  >
-                    Continue
-                  </Button>
-                </form>
+                <div className="flex flex-wrap gap-2">
+                  {(appState.options ?? []).map((option, index) => (
+                    <Button
+                      key={`${option.value}-${index}`}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-auto max-w-full justify-start whitespace-normal text-left"
+                      onClick={() => continueWithClarification(option.value, "selected")}
+                      title={option.description}
+                    >
+                      <span className="rounded bg-muted px-1 text-[10px] text-muted-foreground">{index + 1}</span>
+                      <span>{option.label}</span>
+                    </Button>
+                  ))}
+                  {(((appState.options ?? []).length === 0) || appState.allowCustom !== false) && (
+                    <Button
+                      type="button"
+                      variant={clarificationCustomOpen ? "default" : "outline"}
+                      size="sm"
+                      className="gap-2"
+                      onClick={() => setClarificationCustomOpen(true)}
+                    >
+                      <span className="rounded bg-muted px-1 text-[10px] text-muted-foreground">
+                        {(appState.options ?? []).length + 1}
+                      </span>
+                      Custom
+                    </Button>
+                  )}
+                </div>
+                {clarificationCustomOpen && (
+                  <form onSubmit={handleClarificationSubmit} className="flex gap-2">
+                    <Input
+                      value={clarificationAnswer}
+                      onChange={(e) => setClarificationAnswer(e.target.value)}
+                      placeholder="Type a custom answer..."
+                      className="h-8 text-sm"
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          e.preventDefault();
+                          setClarificationCustomOpen(false);
+                          setClarificationAnswer("");
+                        }
+                      }}
+                    />
+                    <Button
+                      type="submit"
+                      size="sm"
+                      disabled={!clarificationAnswer.trim()}
+                    >
+                      Continue
+                    </Button>
+                  </form>
+                )}
               </div>
             )}
 

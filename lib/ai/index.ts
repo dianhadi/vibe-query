@@ -1,4 +1,4 @@
-import { DataQualityCheck, DataQualityPlan, PerformanceAnalysis, PerformanceSuggestion, Schema } from "@/types";
+import { ClarifyOption, DataQualityCheck, DataQualityPlan, PerformanceAnalysis, PerformanceSuggestion, Schema } from "@/types";
 import { Dialect } from "@/lib/db/dialect";
 import { schemaProfileToString } from "@/lib/agent/schema-profile";
 import { classifyQueryType } from "@/lib/db/execute";
@@ -256,7 +256,7 @@ function cleanSQL(raw: string): string {
 export type AgentPlanningAction =
   | { action: "final_sql"; sql: string }
   | { action: "inspect_distinct"; table: string; column: string; reason: string }
-  | { action: "clarify"; question: string }
+  | { action: "clarify"; question: string; options?: ClarifyOption[]; allowCustom?: boolean }
   | { action: "refuse"; reason: string };
 
 export interface RepairSuggestion {
@@ -279,7 +279,24 @@ function parsePlanningAction(raw: string): AgentPlanningAction {
     return { action: "inspect_distinct", table: parsed.table, column: parsed.column, reason: parsed.reason };
   }
   if (parsed.action === "clarify" && typeof parsed.question === "string" && parsed.question.trim()) {
-    return { action: "clarify", question: parsed.question.trim() };
+    const options = Array.isArray(parsed.options)
+      ? parsed.options.flatMap((option): ClarifyOption[] => {
+          if (!option || typeof option !== "object") return [];
+          const candidate = option as Partial<ClarifyOption>;
+          if (typeof candidate.label !== "string" || typeof candidate.value !== "string") return [];
+          return [{
+            label: candidate.label.trim(),
+            value: candidate.value.trim(),
+            description: typeof candidate.description === "string" ? candidate.description.trim() : undefined,
+          }];
+        }).filter((option) => option.label && option.value).slice(0, 3)
+      : undefined;
+    return {
+      action: "clarify",
+      question: parsed.question.trim(),
+      options,
+      allowCustom: typeof parsed.allowCustom === "boolean" ? parsed.allowCustom : undefined,
+    };
   }
   if (parsed.action === "refuse" && typeof parsed.reason === "string" && parsed.reason.trim()) {
     return { action: "refuse", reason: parsed.reason.trim() };

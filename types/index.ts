@@ -83,11 +83,17 @@ export interface GenerateResult {
   queryType: QueryType;
 }
 
+export interface ClarifyOption {
+  label: string;
+  value: string;
+  description?: string;
+}
+
 export type AgentStreamEvent =
   | { type: "status"; message: string }
   | { type: "tool_call"; tool: "inspect_distinct"; table: string; column: string }
   | { type: "tool_result"; tool: "inspect_distinct"; summary: string }
-  | { type: "clarify"; question: string }
+  | { type: "clarify"; question: string; options?: ClarifyOption[]; allowCustom?: boolean }
   | { type: "final_sql"; sql: string; queryType: QueryType }
   | { type: "repair_suggestion"; sql: string; queryType: QueryType; summary: string }
   | { type: "error"; error: string };

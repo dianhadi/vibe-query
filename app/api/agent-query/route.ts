@@ -76,7 +76,12 @@ export async function POST(req: NextRequest) {
           }
 
           if (action.action === "clarify") {
-            controller.enqueue(encodeEvent({ type: "clarify", question: action.question }));
+            controller.enqueue(encodeEvent({
+              type: "clarify",
+              question: action.question,
+              options: action.options,
+              allowCustom: action.allowCustom,
+            }));
             return;
           }
 

@@ -22,16 +22,21 @@ export default function PromptInput({ onSubmit, loading, loadingLabel = "Generat
     else setLocalPrompt(v);
   }
 
+  function submitPrompt() {
+    const trimmedPrompt = prompt.trim();
+    if (!trimmedPrompt || loading) return;
+    onSubmit(trimmedPrompt);
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (prompt.trim()) onSubmit(prompt.trim());
+    submitPrompt();
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-      e.preventDefault();
-      if (prompt.trim() && !loading) onSubmit(prompt.trim());
-    }
+    if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+    e.preventDefault();
+    submitPrompt();
   }
 
   return (
